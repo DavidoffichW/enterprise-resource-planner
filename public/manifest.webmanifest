@@ -6,8 +6,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f3f6f6",
-  "theme_color": "#123447",
+  "background_color": "#07101f",
+  "theme_color": "#0c1829",
   "icons": [
     { "src": "./erp-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]

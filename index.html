@@ -3,14 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#123447" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#07101f" />
     <meta
       name="description"
       content="Enterprise Resource Planner — local operational planning and decision evidence."
     />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./erp-mark.svg" type="image/svg+xml" />
+    <script>
+      (() => {
+        const saved = localStorage.getItem('erp-theme');
+        document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+      })();
+    </script>
     <title>Enterprise Resource Planner</title>
   </head>
   <body>

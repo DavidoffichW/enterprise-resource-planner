@@ -23,15 +23,18 @@ interface PlanningGridProps {
 }
 
 const gridTheme = themeQuartz.withParams({
-  accentColor: '#0b7189',
-  backgroundColor: '#ffffff',
-  borderColor: '#d6dfe3',
+  accentColor: 'var(--accent)',
+  backgroundColor: 'var(--surface-raised)',
+  borderColor: 'var(--border)',
   fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
-  foregroundColor: '#17313f',
-  headerBackgroundColor: '#eef4f5',
-  headerTextColor: '#173a4f',
-  rowHoverColor: '#f2f8f8',
-  selectedRowBackgroundColor: '#d9eff2',
+  foregroundColor: 'var(--text)',
+  headerBackgroundColor: 'var(--surface-primary)',
+  headerTextColor: 'var(--text)',
+  rowHoverColor: 'var(--surface-hover)',
+  selectedRowBackgroundColor: 'var(--selection)',
+  fontSize: 12,
+  rowHeight: 34,
+  headerHeight: 36,
 });
 
 interface CellTransaction {
@@ -140,9 +143,8 @@ export function PlanningGrid({ dataset, onChange }: PlanningGridProps) {
     <section className="panel grid-panel" aria-labelledby="grid-title">
       <div className="panel-heading grid-heading">
         <div>
-          <p className="eyebrow">Step 5</p>
-          <h2 id="grid-title">Inspect and edit</h2>
-          <p>{dataset.rows.length.toLocaleString()} rows · {dataset.columns.length} source columns · edits stay local until export</p>
+          <h2 id="grid-title">Planning grid</h2>
+          <p>{dataset.rows.length.toLocaleString()} rows · {dataset.columns.length} source columns</p>
         </div>
         <span className={`status-chip ${dataset.dirty ? 'attention' : 'neutral'}`}>
           {dataset.dirty ? 'Unsaved edits' : 'No local edits'}
@@ -162,8 +164,8 @@ export function PlanningGrid({ dataset, onChange }: PlanningGridProps) {
           Columns ({dataset.columns.length - hiddenColumns.size}/{dataset.columns.length})
         </button>
         <div className="history-actions" aria-label="Cell edit history">
-          <button className="button secondary" type="button" onClick={undo} disabled={historyCounts.undo === 0}>Undo edit</button>
-          <button className="button secondary" type="button" onClick={redo} disabled={historyCounts.redo === 0}>Redo edit</button>
+          <button className="button secondary" type="button" onClick={undo} disabled={historyCounts.undo === 0}>Undo</button>
+          <button className="button secondary" type="button" onClick={redo} disabled={historyCounts.redo === 0}>Redo</button>
         </div>
       </div>
       {showColumns && (
@@ -192,7 +194,7 @@ export function PlanningGrid({ dataset, onChange }: PlanningGridProps) {
           defaultColDef={{ suppressHeaderMenuButton: false }}
         />
       </div>
-      <p className="grid-guidance">Select a cell and type to edit. Use header menus for filtering, click headers to sort, and use Tab or arrow keys to navigate.</p>
+      <p className="grid-guidance">Edit cells directly. Use column menus to filter, headers to sort, and Tab or arrow keys to move.</p>
     </section>
   );
 }

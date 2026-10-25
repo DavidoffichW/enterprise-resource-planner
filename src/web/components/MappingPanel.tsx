@@ -33,22 +33,21 @@ export function MappingPanel({ dataset, onChange }: MappingPanelProps) {
     <section className="panel mapping-panel" aria-labelledby="mapping-title">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Step 3</p>
-          <h2 id="mapping-title">Map source meaning</h2>
-          <p>Original headers stay unchanged. Suggested roles remain provisional until you confirm them.</p>
+          <h2 id="mapping-title">Column mapping</h2>
+          <p>Match source columns to the fields ERP uses. Original headers remain unchanged.</p>
         </div>
         <div className="mapping-statuses">
           <span className={`status-chip ${dataset.mappingsConfirmed ? 'success' : 'attention'}`}>
             {dataset.mappingsConfirmed ? 'Mappings confirmed' : 'Confirmation required'}
           </span>
           <span className={`status-chip ${dataset.readiness === 'READY' ? 'success' : dataset.readiness === 'PARTIALLY_READY' ? 'attention' : 'error'}`}>
-            Decision readiness: {dataset.readiness.replaceAll('_', ' ').toLocaleLowerCase('en-US')}
+            {dataset.readiness === 'READY' ? 'Ready for decisions' : dataset.readiness === 'PARTIALLY_READY' ? 'Some rows need review' : 'Not ready for decisions'}
           </span>
         </div>
       </div>
 
       <div className="grain-control">
-        <label htmlFor="grain-column">Dataset grain</label>
+        <label htmlFor="grain-column">Record identifier</label>
         <select
           id="grain-column"
           value={dataset.grainColumnId ?? ''}
@@ -57,7 +56,7 @@ export function MappingPanel({ dataset, onChange }: MappingPanelProps) {
             onChange(validateDataset(setDatasetGrain(dataset, event.target.value || null)));
           }}
         >
-          <option value="">Select the column that identifies one planning record</option>
+          <option value="">Select the column that uniquely identifies each row</option>
           {dataset.columns.map((column) => (
             <option key={column.id} value={column.id}>
               {column.originalHeader || `(unnamed column ${column.sourceIndex + 1})`}
@@ -117,9 +116,9 @@ export function MappingPanel({ dataset, onChange }: MappingPanelProps) {
           type="button"
           onClick={confirm}
         >
-          Confirm mappings and grain
+          Confirm mapping
         </button>
-        {!dataset.grainColumnId && <span className="inline-help">Choose a dataset-grain column first.</span>}
+        {!dataset.grainColumnId && <span className="inline-help">Choose a unique row identifier first.</span>}
         {confirmationBlocked && (
           <span className="inline-help error-text" role="alert">
             {confirmationBlocked}

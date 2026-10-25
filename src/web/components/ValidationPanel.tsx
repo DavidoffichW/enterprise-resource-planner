@@ -10,9 +10,8 @@ export function ValidationPanel({ dataset }: { dataset: PlanningDataset }) {
     <section className="panel validation-panel" aria-labelledby="validation-title">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Step 4</p>
-          <h2 id="validation-title">Validate planning data</h2>
-          <p>Errors block reliable canonical use; warnings identify conditions that need operator review.</p>
+          <h2 id="validation-title">Data-quality issues</h2>
+          <p>Errors block affected rows from decision workflows. Warnings need review.</p>
         </div>
         <div className="issue-summary" aria-label="Validation issue counts">
           <span className="issue-count error">{counts.error} errors</span>
@@ -20,7 +19,7 @@ export function ValidationPanel({ dataset }: { dataset: PlanningDataset }) {
         </div>
       </div>
       <div className="readiness-summary" role="status">
-        <strong>Decision readiness: {dataset.readiness.replaceAll('_', ' ').toLocaleLowerCase('en-US')}</strong>
+        <strong>{dataset.readiness === 'READY' ? 'Ready for decisions' : dataset.readiness === 'PARTIALLY_READY' ? 'Some rows need review' : 'Not ready for decisions'}</strong>
         <span>{ready} ready</span>
         <span>{review} review required</span>
         <span>{invalid} invalid</span>

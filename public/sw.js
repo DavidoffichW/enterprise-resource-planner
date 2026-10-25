@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'erp-static-v0.1.0-erp005';
+const CACHE_VERSION = 'erp-static-v0.1.0-erp006';
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './erp-mark.svg', './runtime-manifest.json'];
 
 self.addEventListener('install', (event) => {

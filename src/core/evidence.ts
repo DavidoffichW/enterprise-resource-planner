@@ -195,17 +195,40 @@ export async function recordReplacementDecision(
   if (!input.snapshot.dataset.rows.some((row) => row.id === input.selectedRowId)) throw new Error('The selected replacement is not present in the immutable dataset snapshot.');
   const ranking = input.rankingResultId ? input.snapshot.rankings.find((item) => item.id === input.rankingResultId) ?? null : null;
   if (input.rankingResultId && !ranking) throw new Error('The selected recommendation source is not present in the Case snapshot.');
+  if (ranking && (
+    ranking.contextId !== input.snapshot.context.id ||
+    ranking.scopeRevision !== input.snapshot.scope.revision ||
+    ranking.datasetSnapshotRevision !== input.snapshot.context.datasetSnapshotRevision
+  )) {
+    throw new Error('The selected recommendation was calculated for a different job, candidate set, or planning-data revision. Rank this decision again before saving it.');
+  }
   const decisionId = await canonicalDigest({
-    schema: 'erp-replacement-decision/1',
+    schema: 'erp-replacement-decision/2',
+    contextId: input.snapshot.context.id,
     datasetSnapshotRevision: input.snapshot.context.datasetSnapshotRevision,
+    mappingRevision: input.snapshot.context.mappingRevision,
+    scopeRevision: input.snapshot.scope.revision,
+    effectiveDate: input.snapshot.context.effectiveDate,
     targetRowIds: input.snapshot.context.targetRowIds,
     selectedRowId: input.selectedRowId,
-    rankingSource: ranking ? { id: ranking.source.id, revision: ranking.source.revision } : null,
+    rankingSource: ranking ? { resultId: ranking.id, id: ranking.source.id, revision: ranking.source.revision } : null,
   });
-  const existing = existingCases.find((planningCase) => planningCase.events.some((event) => {
-    if (event.type !== 'DECISION_RECORDED') return false;
-    try { return (JSON.parse(event.value) as { decisionId?: unknown }).decisionId === decisionId; } catch { return false; }
-  }));
+  const existing = existingCases.find((planningCase) => {
+    if (
+      planningCase.snapshot.context.id !== input.snapshot.context.id ||
+      planningCase.snapshot.scope.revision !== input.snapshot.scope.revision
+    ) return false;
+    return planningCase.events.some((event) => {
+      if (event.type !== 'DECISION_RECORDED') return false;
+      try {
+        const value = JSON.parse(event.value) as { decisionId?: unknown; selectedRowId?: unknown; rankingSource?: { resultId?: unknown } | null };
+        return value.decisionId === decisionId || (
+          value.selectedRowId === input.selectedRowId &&
+          (value.rankingSource?.resultId ?? null) === (ranking?.id ?? null)
+        );
+      } catch { return false; }
+    });
+  });
   if (existing) return { planningCase: existing, created: false, decisionId };
   let planningCase = await createPlanningCase(input.name, input.snapshot, null, null, input.now);
   planningCase = await appendHumanEvent(planningCase, {

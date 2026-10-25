@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import type { DecisionDraft, PersistedApplicationState, PlanningDataset, PriorityListRevision, RankingResult, WorkbookState } from '../../contracts';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { DecisionDraft, PersistedApplicationState, PlanningDataset, RankingResult, WorkbookState } from '../../contracts';
 import {
   compareNullableRanks,
   createCandidateScope,
@@ -8,11 +8,13 @@ import {
   createRuleSet,
   defaultEligibilityRules,
   evaluateEligibility,
+  FACILITIES_EXAMPLE_PRIORITY_ORDER,
   rankByDemonstrationModel,
   rankByPriorityList,
   rankByWeightedCriteria,
   recordReplacementDecision,
   semanticText,
+  semanticValue,
 } from '../../core';
 import { createPriorityListFromInspection, exportPriorityList, inspectPriorityListWorkbook, type PriorityListInspection } from '../adapters/priority-list-excel';
 
@@ -27,157 +29,176 @@ interface Props {
   onState: (state: PersistedApplicationState) => void;
 }
 
-function rowLabel(dataset: PlanningDataset, rowId: string): string {
-  const identifier = semanticText(dataset, rowId, 'planned_job_identifier') || semanticText(dataset, rowId, 'asset_identifier') || rowId;
-  const description = semanticText(dataset, rowId, 'job_description');
-  return description ? `${identifier} — ${description}` : identifier;
+function rowIdentity(dataset: PlanningDataset, rowId: string) {
+  return semanticText(dataset, rowId, 'planned_job_identifier') || semanticText(dataset, rowId, 'asset_identifier') || rowId;
 }
-
-function downloadBytes(bytes: Uint8Array, filename: string) {
-  const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  const anchor = document.createElement('a');
-  anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
+function rowDescription(dataset: PlanningDataset, rowId: string) { return semanticText(dataset, rowId, 'job_description') || 'No description'; }
+function rowLabel(dataset: PlanningDataset, rowId: string) { return `${rowIdentity(dataset, rowId)} — ${rowDescription(dataset, rowId)}`; }
+function rankingDisplayLabel(result: RankingResult | null) {
+  if (!result) return 'Manual selection';
+  if (result.source.type === 'DEMONSTRATION_MODEL') return 'Example model';
+  if (result.source.type === 'REFERENCE') return 'Weighted reference';
+  return result.source.label;
+}
+function downloadBytes(bytes: Uint8Array, filename: string) { const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); }
+function rankingMatches(result: RankingResult | null, draft: DecisionDraft, dataset: PlanningDataset, targetId: string) {
+  return Boolean(result && draft.context && draft.scope && draft.context.targetRowIds.length === 1 && draft.context.targetRowIds[0] === targetId && draft.context.datasetSnapshotRevision === dataset.snapshotRevision && result.contextId === draft.context.id && result.scopeRevision === draft.scope.revision && result.datasetSnapshotRevision === draft.context.datasetSnapshotRevision);
 }
 
 export function RecommendationsWorkspace({ dataset, workbook, workspaceId, state, draft, ensureEvidenceDataset, onDraft, onState }: Props) {
   const [targetId, setTargetId] = useState(draft.context?.targetRowIds[0] ?? dataset.rows[0]?.id ?? '');
-  const [selectedListRevision, setSelectedListRevision] = useState(state.priorityLists.at(-1)?.revision ?? '');
-  const [manualSelection, setManualSelection] = useState('');
+  const [effectiveDate] = useState(draft.context?.effectiveDate ?? new Date().toISOString().slice(0, 10));
+  const [jobSearch, setJobSearch] = useState('');
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [selectedCandidateId, setSelectedCandidateId] = useState('');
+  const [rankingChoice, setRankingChoice] = useState(() => state.priorityLists[0] ? `priority:${state.priorityLists[0].id}` : 'manual');
   const [inspection, setInspection] = useState<PriorityListInspection | null>(null);
   const [identifierHeader, setIdentifierHeader] = useState('');
   const [rankHeader, setRankHeader] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
   const listInput = useRef<HTMLInputElement>(null);
 
-  const activeRanking = draft.rankings.find((item) => item.id === draft.activeRankingId) ?? null;
-  const orderedRecommendations = useMemo(
-    () => activeRanking?.ranks.slice().sort((left, right) => compareNullableRanks(left, right, 'asc')) ?? [],
-    [activeRanking],
-  );
-  const topRecommendation = orderedRecommendations.find((item) => item.rank !== null) ?? null;
-  const contextMatchesSelection = draft.context?.targetRowIds.length === 1 && draft.context.targetRowIds[0] === targetId;
-  const alternatives = dataset.rows.filter((row) => row.id !== targetId);
+  const update = (changes: Partial<DecisionDraft>) => onDraft({ ...draft, ...changes, updatedAt: new Date().toISOString() });
+  const activeResultCandidate = draft.rankings.find((item) => item.id === draft.activeRankingId) ?? null;
+  const activeResult = rankingMatches(activeResultCandidate, draft, dataset, targetId) ? activeResultCandidate : null;
+  const target = dataset.rows.find((row) => row.id === targetId) ?? null;
 
-  const execute = async (operation: () => Promise<void>) => {
+  const run = async (operation: () => Promise<void>) => {
     setBusy(true); setError(''); setNotice('');
-    try { await operation(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'The operation failed.'); }
+    try { await operation(); } catch (caught) { setError(caught instanceof Error ? caught.message : 'The operation could not be completed.'); }
     finally { setBusy(false); }
   };
 
-  const decisionInputs = async () => {
-    if (!targetId) throw new Error('Select the planned job that needs a replacement.');
+  const prepareDecision = async () => {
     const evidenceDataset = await ensureEvidenceDataset();
-    const context = createDecisionContext(evidenceDataset, 'JOB_REPLACEMENT', [targetId], new Date().toISOString().slice(0, 10));
-    const scope = await createCandidateScope(evidenceDataset, context, {
-      mode: 'ALL_RECORDS',
-      rationale: 'Default replacement population includes every loaded planning record except the selected planned job. Data-quality state remains visible and advisory.',
-    });
-    return { evidenceDataset, context, scope };
+    if (draft.context && draft.scope && draft.context.targetRowIds[0] === targetId && draft.context.datasetSnapshotRevision === evidenceDataset.snapshotRevision && draft.context.effectiveDate === effectiveDate) {
+      return { evidenceDataset, context: draft.context, scope: draft.scope, ruleSet: draft.ruleSet, eligibility: draft.eligibility };
+    }
+    const context = createDecisionContext(evidenceDataset, 'JOB_REPLACEMENT', [targetId], effectiveDate);
+    const ruleSet = await createRuleSet('Standard replacement checks', defaultEligibilityRules().map((rule) => rule.id === 'planned-by-cutoff' ? { ...rule, value: effectiveDate } : rule));
+    const scope = await createCandidateScope(evidenceDataset, context, { mode: 'ALL_VALID', manualExcludedRowIds: [targetId], rationale: 'Available valid planning rows excluding the selected job.' });
+    const eligibility = await evaluateEligibility(evidenceDataset, context, scope, ruleSet);
+    return { evidenceDataset, context, scope, ruleSet, eligibility };
   };
 
-  const runRanking = (kind: 'priority' | 'reference' | 'model') => execute(async () => {
-    const { evidenceDataset, context, scope } = await decisionInputs();
+  const changeTarget = (next: string) => {
+    setTargetId(next); setSelectedCandidateId(''); setError('');
+    if (draft.context && draft.context.targetRowIds[0] !== next) {
+      update({ context: null, scope: null, ruleSet: null, eligibility: null, rankings: [], activeRankingId: null, myRank: [], portfolio: null });
+      setNotice('Job changed. Choose how to rank the available replacements.');
+    }
+  };
+
+  const applyRanking = () => run(async () => {
+    if (!targetId) throw new Error('Choose a job to replace.');
+    const prepared = await prepareDecision();
+    if (rankingChoice === 'manual') {
+      update({ context: prepared.context, scope: prepared.scope, ruleSet: prepared.ruleSet, eligibility: prepared.eligibility, rankings: [], activeRankingId: null, myRank: [], portfolio: null });
+      setNotice('Manual selection is ready. Choose any valid replacement below.');
+      return;
+    }
     let result: RankingResult;
-    if (kind === 'priority') {
-      const list = state.priorityLists.find((candidate) => candidate.revision === selectedListRevision);
-      if (!list) throw new Error('Select a Priority List revision.');
-      result = await rankByPriorityList(evidenceDataset, context.id, scope, null, list);
-    } else if (kind === 'reference') {
-      result = await rankByWeightedCriteria(evidenceDataset, context.id, scope, null);
-    } else {
-      result = await rankByDemonstrationModel(evidenceDataset, context.id, scope, null);
+    if (rankingChoice === 'reference') result = await rankByWeightedCriteria(prepared.evidenceDataset, prepared.context.id, prepared.scope, prepared.eligibility);
+    else if (rankingChoice === 'model') result = await rankByDemonstrationModel(prepared.evidenceDataset, prepared.context.id, prepared.scope, prepared.eligibility);
+    else {
+      const listId = rankingChoice.slice('priority:'.length);
+      const list = state.priorityLists.find((item) => item.id === listId);
+      if (!list) throw new Error('Choose a saved priority list.');
+      result = await rankByPriorityList(prepared.evidenceDataset, prepared.context.id, prepared.scope, prepared.eligibility, list);
     }
-    const rankings = [...draft.rankings.filter((existing) => existing.source.id !== result.source.id || existing.source.revision !== result.source.revision), result];
-    onDraft({ ...draft, context, scope, ruleSet: null, eligibility: null, rankings, activeRankingId: result.id, myRank: [], portfolio: null, updatedAt: new Date().toISOString() });
-    const ranked = result.ranks.filter((item) => item.rank !== null).length;
-    setNotice(`${result.source.label} produced ${ranked} recommendation${ranked === 1 ? '' : 's'} across ${scope.candidateRowIds.length} scoped records. Eligibility was not used as a gate.`);
+    update({ context: prepared.context, scope: prepared.scope, ruleSet: prepared.ruleSet, eligibility: prepared.eligibility, rankings: [result], activeRankingId: result.id, myRank: [], portfolio: null });
+    const top = result.ranks.slice().sort((a, b) => compareNullableRanks(a, b, 'asc')).find((rank) => rank.rank !== null);
+    setSelectedCandidateId(top?.rowId ?? '');
+    setNotice(`${rankingDisplayLabel(result)} applied to the available replacements.`);
   });
 
-  const runAdvisoryEligibility = () => execute(async () => {
-    const { context, scope } = await decisionInputs();
-    const evidenceDataset = await ensureEvidenceDataset();
-    const ruleSet = await createRuleSet('Advisory deterministic review', defaultEligibilityRules());
-    const eligibility = await evaluateEligibility(evidenceDataset, context, scope, ruleSet);
-    onDraft({ ...draft, context, scope, ruleSet, eligibility, updatedAt: new Date().toISOString() });
-    setNotice('Advisory eligibility evidence was evaluated. It did not alter the selected recommendation source or remove planning records.');
+  const createExamplePriorities = () => run(async () => {
+    if (dataset.sourceIdentity !== 'synthetic:facilities-scheduling:recipe-1:seed-271828') throw new Error('Example priorities are available only for the Facilities example. Import a priority list for other plans.');
+    const entries = FACILITIES_EXAMPLE_PRIORITY_ORDER.map((itemId, index) => ({ itemId, priorityRank: index + 1, additionalFields: {} }));
+    const list = await createPriorityListRevision('Example priorities', 'Planned Job ID', 'Priority Rank', entries, 'built-in-facilities-example');
+    onState({ ...state, priorityLists: [...state.priorityLists.filter((item) => item.id !== list.id), list] });
+    setRankingChoice(`priority:${list.id}`);
+    setNotice('Example priorities created. Choose Apply ranking to use them.');
   });
 
-  const createDemoList = () => execute(async () => {
-    if (!dataset.grainColumnId) throw new Error('Select a dataset-grain column before creating a sample Priority List.');
-    const entries = dataset.rows.map((row, index) => ({
-      itemId: String(row.cells[dataset.grainColumnId!]?.currentRaw ?? '').trim(),
-      priorityRank: index + 1,
-      additionalFields: { Priority: semanticText(dataset, row.id, 'priority') },
-    }));
-    const list = await createPriorityListRevision('Synthetic demonstration priority list', 'Planned Job ID', 'Priority Rank', entries, 'independently-generated-in-application');
-    const priorityLists = state.priorityLists.some((item) => item.revision === list.revision) ? state.priorityLists : [...state.priorityLists, list];
-    onState({ ...state, priorityLists }); setSelectedListRevision(list.revision);
-    setNotice('Synthetic Priority List revision created. It remains independent from eligibility and model output.');
+  const importList = () => run(async () => {
+    if (!inspection) throw new Error('Choose a priority-list workbook first.');
+    const list = await createPriorityListFromInspection(inspection, inspection.sourceName.replace(/\.xlsx$/i, ''), identifierHeader, rankHeader);
+    onState({ ...state, priorityLists: [...state.priorityLists.filter((item) => item.id !== list.id), list] });
+    setRankingChoice(`priority:${list.id}`); setInspection(null);
+    setNotice(`Priority list “${list.name}” imported. Choose Apply ranking to use it.`);
+  });
+  const exportList = () => run(async () => {
+    const listId = rankingChoice.startsWith('priority:') ? rankingChoice.slice('priority:'.length) : '';
+    const list = state.priorityLists.find((item) => item.id === listId);
+    if (!list) throw new Error('Choose a saved priority list to export.');
+    downloadBytes(await exportPriorityList(list), `erp-priority-list-${list.id}.xlsx`);
+    setNotice(`Priority list “${list.name}” exported.`);
   });
 
-  const importList = () => execute(async () => {
-    if (!inspection) throw new Error('Inspect a Priority List workbook first.');
-    const prior = state.priorityLists.find((list) => list.name === inspection.sourceName.replace(/\.xlsx$/i, '') && list.sourceName === inspection.sourceName);
-    const list = await createPriorityListFromInspection(inspection, inspection.sourceName.replace(/\.xlsx$/i, ''), identifierHeader, rankHeader, prior?.id);
-    const priorityLists = state.priorityLists.some((item) => item.revision === list.revision) ? state.priorityLists : [...state.priorityLists, list];
-    onState({ ...state, priorityLists }); setSelectedListRevision(list.revision); setInspection(null);
-    setNotice(`Priority List revision imported with ${list.entries.filter((entry) => entry.status === 'VALID').length} valid and ${list.entries.filter((entry) => entry.status === 'INVALID').length} retained invalid entries.`);
+  const rows = useMemo(() => {
+    const byId = new Map(dataset.rows.map((row) => [row.id, row]));
+    const ranked = activeResult?.ranks.slice().sort((a, b) => compareNullableRanks(a, b, 'asc')) ?? [];
+    const rankedIds = new Set(ranked.map((item) => item.rowId));
+    const items = activeResult
+      ? [...ranked.map((rank) => ({ row: byId.get(rank.rowId)!, rank })), ...dataset.rows.filter((row) => row.id !== targetId && !rankedIds.has(row.id)).map((row) => ({ row, rank: null }))]
+      : dataset.rows.filter((row) => row.id !== targetId).map((row) => ({ row, rank: null }));
+    const query = candidateSearch.trim().toLocaleLowerCase('en-US');
+    return query ? items.filter(({ row }) => rowLabel(dataset, row.id).toLocaleLowerCase('en-US').includes(query)) : items;
+  }, [activeResult, candidateSearch, dataset, targetId]);
+  const topRanked = activeResult?.ranks.slice().sort((a, b) => compareNullableRanks(a, b, 'asc')).find((rank) => rank.rank !== null) ?? null;
+  useEffect(() => {
+    if (topRanked) setSelectedCandidateId(topRanked.rowId);
+    else if (!selectedCandidateId || selectedCandidateId === targetId || !dataset.rows.some((row) => row.id === selectedCandidateId && row.readiness === 'READY')) setSelectedCandidateId(dataset.rows.find((row) => row.id !== targetId && row.readiness === 'READY')?.id ?? '');
+  }, [activeResult?.id, targetId]);
+
+  const selected = dataset.rows.find((row) => row.id === selectedCandidateId) ?? null;
+  const selectedRank = activeResult?.ranks.find((rank) => rank.rowId === selectedCandidateId) ?? null;
+  const filteredTargets = dataset.rows.filter((row) => rowLabel(dataset, row.id).toLocaleLowerCase('en-US').includes(jobSearch.trim().toLocaleLowerCase('en-US'))).slice(0, 100);
+
+  const useReplacement = () => run(async () => {
+    if (!selected) throw new Error('Choose a replacement.');
+    if (selected.readiness !== 'READY') throw new Error('This row needs correction or review before it can be used in a decision.');
+    const prepared = await prepareDecision();
+    const applicableRanking = activeResult && rankingMatches(activeResult, draft, prepared.evidenceDataset, targetId) ? activeResult : null;
+    if (draft.activeRankingId && !applicableRanking) throw new Error('The displayed ranking no longer matches this job. Apply the ranking again.');
+    const evidenceWorkbook = { ...workbook, sheets: workbook.sheets.map((sheet, index) => index === workbook.activeSheetIndex ? prepared.evidenceDataset : sheet) };
+    const snapshot = { workbook: evidenceWorkbook, dataset: prepared.evidenceDataset, context: prepared.context, scope: prepared.scope, ruleSet: prepared.ruleSet, eligibility: prepared.eligibility, rankings: applicableRanking ? [applicableRanking] : [], myRank: [], portfolio: null, relationships: [], historicalEvents: [] };
+    const recorded = await recordReplacementDecision(state.cases, { name: `Replacement · ${rowIdentity(dataset, targetId)}`, snapshot, selectedRowId: selected.id, rankingResultId: applicableRanking?.id ?? null, actorLabel: 'Local operator', reason: applicableRanking ? `Selected after reviewing ${applicableRanking.source.label}.` : 'Selected manually.' });
+    if (recorded.created) onState({ ...state, cases: [...state.cases, recorded.planningCase] });
+    setNotice(recorded.created ? 'Replacement saved.' : 'This replacement is already saved for the same job, date, scope, and ranking.');
   });
 
-  const exportList = () => execute(async () => {
-    const list = state.priorityLists.find((candidate) => candidate.revision === selectedListRevision);
-    if (!list) throw new Error('Select a Priority List revision.');
-    downloadBytes(await exportPriorityList(list), `erp-priority-list-${list.id}-${list.revision.slice(7, 15)}.xlsx`);
-    setNotice('Priority List revision exported, including invalid source rows for correction.');
-  });
+  const sourceLabel = activeResult ? rankingDisplayLabel(activeResult) : (rankingChoice === 'manual' ? 'Manual selection' : 'Not applied');
+  const selectionTitle = selected && topRanked?.rowId === selected.id && selectedRank?.rank !== null
+    ? `Top available candidate — Priority ${selectedRank!.rank}`
+    : selectedRank?.rank !== null && selectedRank ? `Selected candidate — Priority ${selectedRank.rank}` : 'Selected candidate';
 
-  const accept = (selectedRowId: string, rankingResultId: string | null) => execute(async () => {
-    let context = draft.context;
-    let scope = draft.scope;
-    let evidenceDataset = dataset;
-    if (!context || !scope || !contextMatchesSelection || context.datasetSnapshotRevision !== dataset.snapshotRevision) {
-      const prepared = await decisionInputs(); evidenceDataset = prepared.evidenceDataset; context = prepared.context; scope = prepared.scope;
-    }
-    if (selectedRowId === targetId) throw new Error('The planned job cannot replace itself.');
-    const evidenceWorkbook = { ...workbook, sheets: workbook.sheets.map((sheet, index) => index === workbook.activeSheetIndex ? evidenceDataset : sheet) };
-    const applicableRanking = rankingResultId ? draft.rankings.find((item) => item.id === rankingResultId) ?? null : null;
-    const snapshot = {
-      workbook: evidenceWorkbook,
-      dataset: evidenceDataset,
-      context,
-      scope,
-      ruleSet: draft.ruleSet,
-      eligibility: draft.eligibility && draft.eligibility.scopeRevision === scope.revision ? draft.eligibility : null,
-      rankings: applicableRanking ? [applicableRanking] : [],
-      myRank: [], portfolio: null,
-      relationships: [], historicalEvents: [],
-    };
-    const result = await recordReplacementDecision(state.cases, {
-      name: `Replacement: ${rowLabel(evidenceDataset, targetId)} → ${rowLabel(evidenceDataset, selectedRowId)}`,
-      snapshot, selectedRowId, rankingResultId: applicableRanking?.id ?? null,
-      actorLabel: 'Local operator',
-      reason: applicableRanking ? `Operator explicitly accepted the selected recommendation from ${applicableRanking.source.label}.` : 'Operator explicitly selected a manual alternative.',
-    });
-    if (result.created) onState({ ...state, cases: [...state.cases, result.planningCase] });
-    setNotice(result.created ? 'Replacement decision recorded as an immutable Case. No feedback, training label, or outcome was created.' : 'This exact replacement decision was already recorded; no duplicate Case was created.');
-  });
-
-  const activeList = state.priorityLists.find((item) => item.revision === selectedListRevision) ?? null;
-  return <section className="module-stack" aria-labelledby="recommendations-title">
-    <div className="module-hero"><p className="eyebrow">Recommendations</p><h1 id="recommendations-title">Choose a replacement with the engineer in control.</h1><p>Priority Lists are the default operational source. Reference and model rankings are optional advisory views. Eligibility never silently removes loaded records.</p></div>
-    <section className="panel recommendation-controls"><h2>1. Select the planned job</h2><label className="field-stack">Planned job<select value={targetId} onChange={(event) => { setTargetId(event.target.value); setManualSelection(''); }}><option value="">Select a planning record</option>{dataset.rows.map((row) => <option key={row.id} value={row.id}>{rowLabel(dataset, row.id)} · {row.readiness.replaceAll('_', ' ')}</option>)}</select></label></section>
-    <section className="panel"><h2>2. Choose a recommendation source</h2><div className="panel-actions"><button className="button secondary" onClick={() => void createDemoList()} disabled={busy}>Create synthetic Priority List</button><button className="button secondary" onClick={() => listInput.current?.click()} disabled={busy}>Import Priority List (.xlsx)</button><button className="button secondary" onClick={() => void exportList()} disabled={busy || !activeList}>Export selected revision</button><input ref={listInput} className="sr-only" type="file" accept=".xlsx" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void execute(async () => { const inspected = await inspectPriorityListWorkbook(new Uint8Array(await file.arrayBuffer()), file.name); setInspection(inspected); setIdentifierHeader(inspected.headers[0] ?? ''); setRankHeader(inspected.headers[1] ?? ''); }); event.currentTarget.value = ''; }} /></div>
-      {inspection && <div className="form-grid"><label>Item identifier column<select value={identifierHeader} onChange={(event) => setIdentifierHeader(event.target.value)}>{inspection.headers.map((header) => <option key={header}>{header}</option>)}</select></label><label>Priority Rank column<select value={rankHeader} onChange={(event) => setRankHeader(event.target.value)}>{inspection.headers.map((header) => <option key={header}>{header}</option>)}</select></label><button className="button primary" onClick={() => void importList()} disabled={busy}>Import mapped list</button></div>}
-      <label className="field-stack">Priority List revision<select value={selectedListRevision} onChange={(event) => setSelectedListRevision(event.target.value)}><option value="">Select a Priority List</option>{state.priorityLists.map((list) => <option key={list.revision} value={list.revision}>{list.name} · {list.entries.filter((entry) => entry.status === 'VALID').length} valid · {list.revision.slice(7, 15)}</option>)}</select></label>
-      {activeList && <p className={activeList.issues.length ? 'inline-help attention-text' : 'inline-help'}>{activeList.issues.length ? `${activeList.issues.length} source issue${activeList.issues.length === 1 ? '' : 's'} retained; affected rows are unranked.` : 'All list entries are valid.'} Logical ID {activeList.id}; immutable revision {activeList.revision.slice(0, 23)}…</p>}
-      <div className="panel-actions"><button className="button primary" onClick={() => void runRanking('priority')} disabled={busy || !targetId || !selectedListRevision}>Apply Priority List</button><button className="button secondary" onClick={() => void runRanking('reference')} disabled={busy || !targetId}>Run optional reference ranking</button><button className="button secondary" onClick={() => void runRanking('model')} disabled={busy || !targetId}>Run optional synthetic model</button></div>
+  return <section className="recommendations-workspace" aria-labelledby="recommendations-title">
+    <div className="page-header recommendation-heading"><div><p className="eyebrow">Recommendations</p><h1 id="recommendations-title">Replace a job</h1><p>Choose the planned job, review the available replacements, and save your selection.</p></div></div>
+    <section className="recommendation-toolbar panel" aria-label="Recommendation controls">
+      <label className="field-stack job-search">Job to replace<input type="search" value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Find by job ID or description" /></label>
+      <label className="field-stack job-select"><span className="sr-only">Selected job to replace</span><select aria-label="Selected job to replace" value={targetId} onChange={(event) => changeTarget(event.target.value)}>{filteredTargets.map((row) => <option key={row.id} value={row.id}>{rowLabel(dataset, row.id)}</option>)}</select></label>
+      <label className="field-stack rank-select">Rank by<select value={rankingChoice} onChange={(event) => setRankingChoice(event.target.value)}><option value="manual">Manual selection</option>{state.priorityLists.map((list) => <option key={list.id} value={`priority:${list.id}`}>{list.name}</option>)}<option value="reference">Weighted reference</option><option value="model">Example model</option></select></label>
+      <button className="button primary apply-ranking" type="button" disabled={busy || !targetId} onClick={() => void applyRanking()}>Apply ranking</button>
+      <span className="ranking-status"><span>Current ranking</span><strong>{sourceLabel}</strong></span>
     </section>
-    <section className="panel recommendation-result"><h2>3. Review and decide</h2>{!activeRanking ? <p>No recommendation source has been applied. You can still select a manual alternative below.</p> : <><p><strong>Active source:</strong> {activeRanking.source.label} <span className="status-chip neutral">{activeRanking.source.type.replaceAll('_', ' ')}</span></p>{topRecommendation ? <div className="top-recommendation"><span className="eyebrow">#1 recommendation</span><h3>{rowLabel(dataset, topRecommendation.rowId)}</h3><p>{topRecommendation.explanation.join(' ')}</p><button className="button primary accept-replacement" onClick={() => void accept(topRecommendation.rowId, activeRanking.id)} disabled={busy || !contextMatchesSelection}>Accept #1 as Replacement</button>{!contextMatchesSelection && <p className="inline-help">Re-apply a recommendation source after changing the planned job.</p>}</div> : <p className="notice info">This source produced no ranked candidate. Loaded records remain available for manual selection.</p>}<details><summary>Remaining recommendations and evidence</summary><div className="evidence-table-wrap"><table><thead><tr><th>Priority / source rank</th><th>Planning record</th><th>Advisory state</th><th>Explanation</th></tr></thead><tbody>{orderedRecommendations.map((rank) => { const advisory = draft.eligibility?.evaluations.find((item) => item.rowId === rank.rowId); return <tr key={rank.rowId}><td>{rank.rank ?? 'Unranked'}</td><td>{rowLabel(dataset, rank.rowId)}</td><td>{advisory?.state ?? 'Not evaluated'}</td><td>{rank.explanation.join(' ')}</td></tr>; })}</tbody></table></div></details></>}
-      <div className="manual-alternative"><h3>Manual alternative</h3><label>Replacement record<select value={manualSelection} onChange={(event) => setManualSelection(event.target.value)}><option value="">Select any other loaded record</option>{alternatives.map((row) => <option key={row.id} value={row.id}>{rowLabel(dataset, row.id)} · {row.readiness.replaceAll('_', ' ')}</option>)}</select></label><button className="button secondary" onClick={() => void accept(manualSelection, null)} disabled={busy || !manualSelection || !targetId}>Record Manual Replacement</button></div>
-    </section>
-    <details className="panel secondary-analysis"><summary>Secondary analysis: Candidate Scope and advisory eligibility</summary><p>The default scope contains all {Math.max(0, dataset.rows.length - 1)} other loaded records. Validation and eligibility remain visible evidence; they do not override an explicit engineer decision.</p><button className="button secondary" onClick={() => void runAdvisoryEligibility()} disabled={busy || !targetId}>Run advisory eligibility review</button>{draft.eligibility && <div className="state-summary">{['ELIGIBLE','INELIGIBLE','INFEASIBLE','REVIEW_REQUIRED','INVALID'].map((value) => <span key={value}><b>{draft.eligibility!.evaluations.filter((item) => item.state === value).length}</b>{value.replaceAll('_', ' ')}</span>)}</div>}</details>
+
+    <div className="recommendation-layout">
+      <section className="panel candidate-panel" aria-labelledby="candidate-title"><div className="panel-heading"><div><h2 id="candidate-title">Available replacements</h2><p>{rows.length} matching jobs · unranked jobs remain at the bottom</p></div><label className="compact-search"><span className="sr-only">Search candidates</span><input type="search" value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="Search candidates" /></label></div>
+        <div className="candidate-table-wrap"><table className="candidate-table"><thead><tr><th>Priority</th><th>Job</th><th>Description</th><th>Area</th><th>Cost</th><th>Status</th></tr></thead><tbody>{rows.map(({ row, rank }) => <tr key={row.id} className={selectedCandidateId === row.id ? 'selected' : ''} aria-selected={selectedCandidateId === row.id} onClick={() => row.readiness === 'READY' && setSelectedCandidateId(row.id)}><td>{rank?.rank ?? '—'}</td><td><button type="button" disabled={row.readiness !== 'READY'} onClick={() => setSelectedCandidateId(row.id)}>{rowIdentity(dataset, row.id)}</button></td><td>{rowDescription(dataset, row.id)}</td><td>{semanticText(dataset, row.id, 'operational_area') || '—'}</td><td>{typeof semanticValue(dataset, row.id, 'estimated_cost') === 'number' ? Number(semanticValue(dataset, row.id, 'estimated_cost')).toLocaleString() : '—'}</td><td><span className={`row-status ${row.readiness.toLocaleLowerCase('en-US')}`}>{row.readiness === 'READY' ? semanticText(dataset, row.id, 'status') || 'Ready' : 'Needs review'}</span></td></tr>)}</tbody></table></div>
+      </section>
+      <aside className="panel replacement-panel" aria-labelledby="replacement-title"><p className="eyebrow">Selection</p><h2 id="replacement-title">{selectionTitle}</h2>{selected && target ? <><div className="comparison-block"><span>Replacing</span><strong>{rowIdentity(dataset, target.id)}</strong><small>{rowDescription(dataset, target.id)}</small></div><div className="comparison-arrow" aria-hidden="true">↓</div><div className="comparison-block selected"><span>With</span><strong>{rowIdentity(dataset, selected.id)}</strong><small>{rowDescription(dataset, selected.id)}</small></div><dl className="selection-facts"><div><dt>Area</dt><dd>{semanticText(dataset, selected.id, 'operational_area') || '—'}</dd></div><div><dt>Resource</dt><dd>{semanticText(dataset, selected.id, 'resource_requirement') || '—'}</dd></div><div><dt>Planned date</dt><dd>{String(semanticValue(dataset, selected.id, 'planned_date') ?? '—')}</dd></div></dl><button className="button primary accept-replacement" type="button" disabled={busy || selected.readiness !== 'READY'} onClick={() => void useReplacement()}>Use this replacement</button></> : <p className="empty-copy">Select an available job from the list.</p>}
+      </aside>
+    </div>
+
     {error && <div className="notice error" role="alert">{error}</div>}{notice && <div className="notice success" role="status">{notice}</div>}
+
+    <div className="secondary-drawers">
+      <details className="workbench-details"><summary>Priority lists <span>{state.priorityLists.length}</span></summary><div className="drawer-content"><div className="panel-actions"><button className="button secondary" type="button" onClick={() => listInput.current?.click()} disabled={busy}>Import priority list</button>{dataset.sourceIdentity === 'synthetic:facilities-scheduling:recipe-1:seed-271828' && <button className="button secondary" type="button" onClick={() => void createExamplePriorities()} disabled={busy}>Create example priorities</button>}<button className="button secondary" type="button" onClick={() => void exportList()} disabled={busy || !rankingChoice.startsWith('priority:')}>Export selected list</button><input ref={listInput} className="sr-only" type="file" accept=".xlsx" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void run(async () => { const inspected = await inspectPriorityListWorkbook(new Uint8Array(await file.arrayBuffer()), file.name); setInspection(inspected); setIdentifierHeader(inspected.headers[0] ?? ''); setRankHeader(inspected.headers[1] ?? ''); }); event.currentTarget.value = ''; }} /></div>{inspection && <div className="form-grid priority-mapping"><label>Job identifier column<select value={identifierHeader} onChange={(event) => setIdentifierHeader(event.target.value)}>{inspection.headers.map((header) => <option key={header}>{header}</option>)}</select></label><label>Priority column<select value={rankHeader} onChange={(event) => setRankHeader(event.target.value)}>{inspection.headers.map((header) => <option key={header}>{header}</option>)}</select></label><button className="button primary" type="button" onClick={() => void importList()}>Import list</button></div>}</div></details>
+      <details className="workbench-details"><summary>Checks and details <span>{draft.eligibility ? `${draft.eligibility.evaluations.filter((item) => item.state === 'ELIGIBLE').length} eligible` : 'Not run'}</span></summary><div className="drawer-content checks-grid"><div><h3>Availability checks</h3><p>{draft.eligibility ? `${draft.eligibility.evaluations.filter((item) => item.state === 'ELIGIBLE').length} eligible, ${draft.eligibility.evaluations.filter((item) => item.state !== 'ELIGIBLE').length} excluded or needing review.` : 'Apply a ranking or choose manual selection to run checks.'}</p>{draft.eligibility && <ul>{draft.eligibility.evaluations.filter((item) => item.state !== 'ELIGIBLE').slice(0, 12).map((item) => <li key={item.rowId}><strong>{rowIdentity(dataset, item.rowId)}</strong> — {item.reasons.join(' ')}</li>)}</ul>}</div><details><summary>Technical source details</summary><p>Planning-data revision: {dataset.snapshotRevision ? 'Recorded' : 'Pending export'}</p><p>Mapping revision: {dataset.mappingRevision ? 'Recorded' : 'Pending export'}</p><p>Ranking source: {activeResult?.source.scoreMeaning ?? 'Manual selection has no score.'}</p></details></div></details>
+    </div>
   </section>;
 }

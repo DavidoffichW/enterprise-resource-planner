@@ -19,6 +19,7 @@ import {
   createRuleSet,
   defaultEligibilityRules,
   evaluateEligibility,
+  FACILITIES_EXAMPLE_PRIORITY_ORDER,
   optimizePortfolio,
   rankByDemonstrationModel,
   rankByPriorityList,
@@ -134,20 +135,12 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
   });
 
   const createDemoList = () => run(async () => {
-    if (!dataset.grainColumnId) throw new Error('A confirmed dataset grain is required.');
-    const entries = availableRows.map((row) => ({
-      itemId: String(row.cells[dataset.grainColumnId!].normalized ?? ''),
-      priorityRank: 0,
-      additionalFields: { Priority: semanticText(dataset, row.id, 'priority') },
-    })).sort((left, right) => {
-      const leftPriority = Number(left.additionalFields.Priority.replace(/\D/g, '')) || 99;
-      const rightPriority = Number(right.additionalFields.Priority.replace(/\D/g, '')) || 99;
-      return leftPriority - rightPriority || left.itemId.localeCompare(right.itemId);
-    }).map((entry, index) => ({ ...entry, priorityRank: index + 1 }));
-    const list = await createPriorityListRevision('Synthetic demonstration priority list', 'Planned Job ID', 'Priority Rank', entries, 'independently-generated-in-application');
+    if (dataset.sourceIdentity !== 'synthetic:facilities-scheduling:recipe-1:seed-271828') throw new Error('Example priorities are available only for the Facilities example.');
+    const entries = FACILITIES_EXAMPLE_PRIORITY_ORDER.map((itemId, index) => ({ itemId, priorityRank: index + 1, additionalFields: {} }));
+    const list = await createPriorityListRevision('Example priorities', 'Planned Job ID', 'Priority Rank', entries, 'built-in-facilities-example');
     onState({ ...state, priorityLists: [...state.priorityLists.filter((item) => item.id !== list.id), list] });
     setSelectedListId(list.id);
-    setNotice('A reusable synthetic Priority List revision was created explicitly from the displayed synthetic plan.');
+    setNotice('Example priorities created for this plan.');
   });
 
   const importList = () => run(async () => {
@@ -239,5 +232,11 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
   );
 
   const resources = [...new Set(currentPopulation.map((rowId)=>semanticText(dataset,rowId,'resource_requirement')).filter(Boolean))];
-  return <section className="module-stack" aria-labelledby="portfolio-title"><div className="module-hero"><p className="eyebrow">Portfolio</p><h1 id="portfolio-title">Select a feasible budget and resource portfolio.</h1><p>Hard feasibility is separate from ranking preference.</p></div><section className="panel"><div className="form-grid"><label>Objective ranking<select value={portfolioRankingId} onChange={(event)=>setPortfolioRankingId(event.target.value)}><option value="">Select a completed ranking</option>{draft.rankings.map((ranking)=><option key={ranking.id} value={ranking.id}>{ranking.source.label}</option>)}</select></label><label>Budget<input type="number" min="0" value={budget} onChange={(event)=>setBudget(Number(event.target.value))}/></label>{resources.map((resource)=><label key={resource}>{resource} capacity<input type="number" min="0" value={resourceCapacities[resource]??0} onChange={(event)=>setResourceCapacities({...resourceCapacities,[resource]:Number(event.target.value)})}/></label>)}</div><button className="button primary" onClick={()=>void optimize()} disabled={busy || !portfolioRankingId}>Optimize feasible portfolio</button></section>{draft.portfolio&&<section className="panel"><h2>Portfolio result</h2><div className="state-summary"><span><b>{draft.portfolio.selectedRowIds.length}</b>selected</span><span><b>{draft.portfolio.totalCost.toLocaleString()}</b>total cost</span><span><b>{draft.portfolio.totalValue.toFixed(2)}</b>objective value</span><span><b>{draft.portfolio.method}</b>{draft.portfolio.globallyOptimal?'proven exact':'approximate'}</span></div><h3>Selected</h3><ul>{draft.portfolio.selectedRowIds.map((id)=><li key={id}>{rowLabel(dataset,id)}</li>)}</ul><h3>Not selected</h3><ul>{draft.portfolio.excluded.map((item)=><li key={item.rowId}>{rowLabel(dataset,item.rowId)} — {item.reason}</li>)}</ul></section>}{error&&<div className="notice error" role="alert">{error}</div>}{notice&&<div className="notice success" role="status">{notice}</div>}</section>;
+  return <section className="module-stack" aria-labelledby="portfolio-title">
+    <div className="page-header"><div><p className="eyebrow">Portfolio</p><h1 id="portfolio-title">Build a feasible work portfolio</h1><p>Balance the available budget and resources against the selected ranking.</p></div></div>
+    <div className="portfolio-layout">
+      <section className="panel portfolio-controls"><div className="panel-heading"><div><h2>Constraints</h2><p>Set the limits that the selected jobs must satisfy.</p></div></div><div className="form-grid"><label>Ranking source<select value={portfolioRankingId} onChange={(event)=>setPortfolioRankingId(event.target.value)}><option value="">Select a completed ranking</option>{draft.rankings.map((ranking)=><option key={ranking.id} value={ranking.id}>{ranking.source.label}</option>)}</select></label><label>Budget<input type="number" min="0" value={budget} onChange={(event)=>setBudget(Number(event.target.value))}/></label>{resources.map((resource)=><label key={resource}>{resource} capacity<input type="number" min="0" value={resourceCapacities[resource]??0} onChange={(event)=>setResourceCapacities({...resourceCapacities,[resource]:Number(event.target.value)})}/></label>)}</div><button className="button primary" onClick={()=>void optimize()} disabled={busy || !portfolioRankingId}>Build portfolio</button></section>
+      <section className="panel portfolio-results"><div className="panel-heading"><div><h2>Outcome</h2><p>{draft.portfolio ? 'Jobs that fit the active constraints.' : 'Complete a ranking, set constraints, and build the portfolio.'}</p></div></div>{draft.portfolio ? <><div className="state-summary"><span><b>{draft.portfolio.selectedRowIds.length}</b>Selected jobs</span><span><b>{draft.portfolio.totalCost.toLocaleString()}</b>Total cost</span><span><b>{draft.portfolio.totalValue.toFixed(2)}</b>Objective value</span><span><b>{draft.portfolio.globallyOptimal?'Exact':'Approximate'}</b>Solution status</span></div><h3>Selected work</h3><ul>{draft.portfolio.selectedRowIds.map((id)=><li key={id}>{rowLabel(dataset,id)}</li>)}</ul><details className="result-details"><summary>Method and excluded jobs</summary><p>Method: {draft.portfolio.method}. {draft.portfolio.globallyOptimal ? 'The solver established an exact optimum for these inputs.' : 'This result is approximate and is not presented as a proven optimum.'}</p><ul>{draft.portfolio.excluded.map((item)=><li key={item.rowId}>{rowLabel(dataset,item.rowId)} — {item.reason}</li>)}</ul></details></> : <div className="empty-inline">No portfolio result yet.</div>}</section>
+    </div>{error&&<div className="notice error" role="alert">{error}</div>}{notice&&<div className="notice success" role="status">{notice}</div>}
+  </section>;
 }
