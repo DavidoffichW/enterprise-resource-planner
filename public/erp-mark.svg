@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ERP">
+  <rect width="512" height="512" rx="84" fill="#123447"/>
+  <path d="M104 116h304v68H182v42h180v64H182v42h226v68H104z" fill="#fff"/>
+  <path d="M334 202h74v112h-74z" fill="#21a59b"/>
+</svg>

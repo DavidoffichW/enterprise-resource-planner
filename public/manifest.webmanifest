@@ -1,0 +1,14 @@
+{
+  "name": "Enterprise Resource Planner",
+  "short_name": "ERP",
+  "description": "Offline-capable operational planning and decision evidence.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f6",
+  "theme_color": "#123447",
+  "icons": [
+    { "src": "./erp-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

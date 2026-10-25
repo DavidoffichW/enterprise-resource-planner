@@ -1,0 +1,36 @@
+{
+  "name": "enterprise-resource-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-native operational planning and decision-evidence workbench.",
+  "type": "module",
+  "packageManager": "npm@11.17.0",
+  "engines": {
+    "node": ">=24.15.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "verify": "npm run typecheck && vite build"
+  },
+  "dependencies": {
+    "ag-grid-community": "36.2.0",
+    "ag-grid-react": "36.2.0",
+    "fflate": "0.8.3",
+    "read-excel-file": "9.3.12",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "write-excel-file": "4.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.5"
+  }
+}

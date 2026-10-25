@@ -1,0 +1,82 @@
+# Secrets and local configuration.
+/.env
+/.env.*
+!/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Local environments and dependency state.
+/.venv-dev/
+/.venv-prod/
+/.venv/
+/venv/
+/env/
+node_modules/
+/dist/
+
+# Private engineering governance, agent, and qualification material.
+/AGENTS.md
+/.agents/
+/ERP_Docs/
+/config/
+/references/
+/tests/
+/tools/
+/playwright.config.ts
+/vitest.config.ts
+/test-results/
+/playwright-report/
+/.kaggle/
+
+# Generated caches, coverage, and temporary files.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+*.tmp
+*.temp
+*.swp
+~$*
+
+# Private/local data and runtime state.
+/data/private/
+/data/local/
+/datasets/private/
+/runtime/
+/state/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+/logs/
+/diagnostics/private/
+*.dmp
+*.trace
+
+# Unapproved generated assets, model artifacts, and exports.
+/models/
+/artifacts/
+/exports/
+/output/private/
+/output/local/
+/output/tmp/
+*.pt
+*.pth
+*.onnx
+*.joblib
+*.pkl
+*.pickle
+
+# OS and editor metadata.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
