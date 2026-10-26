@@ -1,70 +1,106 @@
 # Enterprise Resource Planner
 
-Enterprise Resource Planner (ERP) is a local-first browser application for turning operational spreadsheets into clear planning, replacement, and portfolio decisions. It is built for engineers, planners, maintenance teams, and operations managers; it is not a finance or accounting ERP suite.
+**Plan job replacements and work portfolios from Excel.**
+
+Enterprise Resource Planner (ERP) is a local-first web application for maintenance and operations planning. Import a schedule, inspect and edit it in a spreadsheet-style workbench, rank possible replacements, and save the decisions you make.
+
+Your priority lists come first. Weighted scoring and an example model can provide a second view, but the final choice stays with the user.
+
+Despite the name, ERP is not a finance or accounting suite.
 
 ![ERP Recommendations workbench with a ranked replacement selected](media/erp-recommendations-workflow.png)
 
 ## Quick start
 
-ERP currently requires Node.js 24.15 or later and npm 11 or later for development. The built application runs entirely in the browser and does not require a backend or Python.
+You will need Node.js 24.15 or later and npm 11 or later to build or run ERP locally.
 
 ```powershell
 npm ci
 npm run dev
 ```
 
-For a production build:
+Open the local URL printed by Vite.
+
+To verify, build, and preview the production version:
 
 ```powershell
 npm run verify
 npm run preview
 ```
 
-Open the local URL printed by Vite. `npm run build` writes the static application to `dist/`.
-
-For a repository-hosted build, set `ERP_BASE_PATH` to the hosting subpath before running `npm run build:pages`. The included GitHub Pages workflow is manual-only; no hosted application is published until the project rights and license are approved.
+The static build is written to `dist/`. Once built, ERP does not need Node.js, Python, or a backend to run.
 
 ## Try a replacement decision
 
-1. Open **Facilities example** from Planning Data.
+1. Open **Facilities example** from **Planning Data**.
 2. Go to **Recommendations** and choose the job to replace.
-3. Open **Priority lists**, create **Example priorities**, and select **Apply ranking**.
-4. Review the original priority order, choose a candidate, and select **Use this replacement**.
-5. Open **History** to review the saved decision and its supporting details.
+3. Open **Priority lists** and create **Example priorities**.
+4. Select **Example priorities** under **Rank by**, then choose **Apply ranking**.
+5. Pick a replacement and choose **Use this replacement**.
+6. Open **History** to review the saved decision.
 
-The two built-in plans contain fictional maintenance and facilities work intended only for demonstration.
+The built-in maintenance and facilities plans contain fictional data, so you can explore ERP without importing your own files.
 
-## Main capabilities
+## Features
 
-- Import and export real `.xlsx` workbooks with multiple worksheets and dynamic source columns.
-- Map spreadsheet columns to planning fields without renaming or discarding the originals.
-- Search, sort, filter, resize, hide, edit, undo, and redo in a spreadsheet-style planning grid.
-- Retain incomplete rows with visible warnings and allow an engineer to select them explicitly without presenting them as valid.
-- Import and reuse immutable Priority List versions without changing their original numeric ranks or losing earlier versions.
-- Compare Priority List, weighted-reference, example-model, and manual replacement choices.
-- Build budget- and resource-constrained work portfolios with an explicit solution status.
-- Save replacement decisions, scenarios, feedback, and outcomes with portable evidence records.
-- Keep multiple planning workspaces in browser-local storage and export or restore a local backup.
-- Run from locally packaged assets, including cached offline use after an initial hosted load.
-- Switch between accessible dark and light workbench themes.
+- **Excel workbench:** Import and export `.xlsx` files, including multi-sheet workbooks. Edit cells, filter rows, sort columns, and undo changes without losing the original worksheet structure.
+- **Semantic mapping:** Map source columns to planning roles while retaining original labels, values, extra columns, and provenance.
+- **Priority lists:** Import and reuse job priorities while preserving exact numeric ranks and earlier list versions. Missing ranks remain unranked.
+- **Replacement planning:** Compare ranked candidates, use optional scoring methods, or choose any loaded replacement yourself. Incomplete records remain available with visible warnings.
+- **Portfolio planning:** Select work around budget and resource limits. The optimizer uses exact enumeration for up to 20 candidates and a deterministic heuristic for larger sets.
+- **Decision history:** Save replacements, revisit earlier decisions, compare scenarios, and export decision records.
+- **Local storage:** Keep multiple plans in your browser, export backups, and restore them later.
+- **Offline support:** After the hosted application has loaded and cached its assets, it can run without a network connection.
+- **Dark and light themes:** Use a compact interface designed for dense tables and planning data.
 
 ## Architecture
 
 ERP uses TypeScript, React, Vite, AG Grid Community, `read-excel-file`, `write-excel-file`, and `fflate`.
 
-- `src/contracts/` defines the public data and evidence structures.
+- `src/contracts/` defines shared data structures and evidence contracts.
 - `src/core/` contains deterministic, framework-independent planning logic.
-- `src/web/` provides the browser interface, spreadsheet adapters, and local persistence.
-- `public/` contains the static runtime manifest, icons, and offline service worker.
+- `src/web/` provides React components, spreadsheet adapters, and browser persistence.
+- `public/` contains the manifest, icons, and offline service worker.
 
-Exact dependency versions are locked in `package-lock.json`; third-party licenses are summarized in `THIRD_PARTY_NOTICES.md`.
+Keeping planning logic outside React makes the decision rules independently testable and avoids making UI state the source of domain truth. Exact dependency versions are locked in `package-lock.json`; third-party licenses are summarized in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Data handling and limitations
+## Computer science concepts explored
 
-Planning data stays in the current browser during normal use. ERP does not include analytics, remote fonts, CDNs, cloud inference, or a server-side data service. Browser-local storage is not encrypted, synchronized, or a substitute for backups, so export a backup before clearing site data or moving devices.
+ERP is also an educational engineering project inspired by concepts taught in software engineering, data systems, operations research, security, and machine learning courses and training materials. It provides a practical setting for experimenting with several important ideas:
 
-The application preserves source values and distinguishes imported, edited, generated, and observed information. Missing values are not treated as zero. Example-model scores are relative ranking aids—not probabilities, confidence values, or validated operational predictions.
+- **Content-addressed snapshots:** Canonical serialization and SHA-256 digests distinguish a logical dataset from a particular immutable content revision.
+- **Provenance-aware data pipelines:** Raw spreadsheet values, normalized values, user edits, external edits, mappings, and generated evidence remain distinguishable throughout import and export.
+- **Append-only evidence and idempotency:** Versioned decisions and Priority Lists preserve history, while stable decision identities prevent accidental duplicate submissions.
+- **Constraint and ranking separation:** Eligibility and data-quality assessments do not silently become ranking scores, and advisory checks remain distinct from binding constraints.
+- **Bounded combinatorial optimization:** Small portfolios use exact subset enumeration; larger populations use a deterministic heuristic with an explicit non-optimality qualification.
+- **Offline-first consistency:** IndexedDB transactions, portable backups, service-worker cache scopes, and atomic import boundaries support local operation without a backend.
+- **Untrusted document processing:** Workbook size budgets, archive path checks, formula handling, schema validation, and safe export rules constrain the OOXML input boundary.
+- **Schema evolution and referential integrity:** Versioned envelopes and context-bound identifiers keep datasets, mappings, rankings, scopes, and saved decisions connected to the evidence that produced them.
 
-Direct `file://` launch is not supported; use the development server, preview server, or a static host. Spreadsheet safeguards reduce risk but do not provide universal OOXML compatibility or security certification. This project is under active development and has not been qualified for safety-critical or production operational use.
+These implementations are intended for learning and experimentation as well as practical planning. They should not be treated as reference implementations for every production environment.
 
-Version `0.1.0` is technically prepared as a release candidate; see [CHANGELOG.md](CHANGELOG.md). No project license is currently included. Without a license, no general permission is granted to copy, modify, or redistribute the source, and the repository is not yet approved for public release.
+## Data and privacy
+
+ERP processes spreadsheets in the browser. It has no account system, backend database, telemetry, remote fonts, CDN dependency, or remote inference service.
+
+Plans and decisions are stored locally using IndexedDB. That storage belongs to the current browser profile, so export a backup before clearing site data or switching devices. Local storage is not encrypted or automatically synchronized.
+
+## Deployment
+
+ERP can be served from a suitable static host over HTTP or HTTPS. Opening the built files directly with `file://` is not supported.
+
+For GitHub Pages, the repository includes a manual deployment workflow in `.github/workflows/deploy-pages.yml`. The build accepts a repository subpath through `ERP_BASE_PATH`.
+
+## Current limitations
+
+ERP is an early release and an independently developed educational project inspired by courses and training materials in computer science and engineering. It was built partly to experiment with critical concepts, and it has not been qualified for safety-critical decisions or production operational use.
+
+The example ranking model demonstrates the scoring workflow. It is not trained or validated for real operational predictions, and its scores are not probabilities or confidence values. Spreadsheet safeguards do not provide universal OOXML compatibility or security certification. Some complex workbook features and layouts are unsupported. Portfolio results above 20 candidates are heuristic and are not presented as proven optima.
+
+Browser-local data can be lost if site storage is cleared, the profile becomes unavailable, or the device fails. Exported backups remain the portable recovery mechanism.
+
+Release notes are available in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+A project license has not been selected. The repository remains private pending ownership and redistribution approval. Without a license, no general permission is granted to copy, modify, or redistribute the source.

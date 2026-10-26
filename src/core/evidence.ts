@@ -172,7 +172,7 @@ export async function evaluateScenario(
   const scopeChecksum = await canonicalDigest({ schema: 'erp-candidate-scope/1', ...scopeBody, id: undefined, revision: undefined, checksum: undefined, createdAt: undefined });
   const scenarioScope = { ...scopeBody, id: `scope-${scopeChecksum.slice(7, 23)}`, revision: scopeChecksum, checksum: scopeChecksum };
   const planningCase = await createPlanningCase(
-    `${parentCase.name} — ${name.trim()}`,
+    `${parentCase.name}: ${name.trim()}`,
     { ...structuredClone(parentCase.snapshot), scope: scenarioScope, eligibility: null, portfolio: scenarioPortfolio },
     parentCase.id,
     baseScenario.id,

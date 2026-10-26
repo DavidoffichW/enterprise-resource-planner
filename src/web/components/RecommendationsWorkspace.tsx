@@ -34,7 +34,7 @@ function rowIdentity(dataset: PlanningDataset, rowId: string) {
   return semanticText(dataset, rowId, 'planned_job_identifier') || semanticText(dataset, rowId, 'asset_identifier') || rowId;
 }
 function rowDescription(dataset: PlanningDataset, rowId: string) { return semanticText(dataset, rowId, 'job_description') || 'No description'; }
-function rowLabel(dataset: PlanningDataset, rowId: string) { return `${rowIdentity(dataset, rowId)} — ${rowDescription(dataset, rowId)}`; }
+function rowLabel(dataset: PlanningDataset, rowId: string) { return `${rowIdentity(dataset, rowId)}: ${rowDescription(dataset, rowId)}`; }
 function rankingDisplayLabel(result: RankingResult | null) {
   if (!result) return 'Manual selection';
   if (result.source.type === 'DEMONSTRATION_MODEL') return 'Example model';
@@ -183,8 +183,8 @@ export function RecommendationsWorkspace({ dataset, workbook, workspaceId, state
 
   const sourceLabel = activeResult ? rankingDisplayLabel(activeResult) : (rankingChoice === 'manual' ? 'Manual selection' : 'Not applied');
   const selectionTitle = selected && topRanked?.rowId === selected.id && selectedRank?.rank !== null
-    ? `Top available candidate — Priority ${selectedRank!.rank}`
-    : selectedRank?.rank !== null && selectedRank ? `Selected candidate — Priority ${selectedRank.rank}` : 'Selected candidate';
+    ? `Top available candidate: Priority ${selectedRank!.rank}`
+    : selectedRank?.rank !== null && selectedRank ? `Selected candidate: Priority ${selectedRank.rank}` : 'Selected candidate';
 
   return <section className="recommendations-workspace" aria-labelledby="recommendations-title">
     <div className="page-header recommendation-heading">
@@ -231,11 +231,11 @@ export function RecommendationsWorkspace({ dataset, workbook, workspaceId, state
                 ? semanticText(dataset, row.id, 'status') || 'Ready'
                 : row.readiness === 'INVALID' ? 'Invalid data' : 'Needs review';
               return <tr key={row.id} className={selectedCandidateId === row.id ? 'selected' : ''} aria-selected={selectedCandidateId === row.id} onClick={() => setSelectedCandidateId(row.id)}>
-                <td>{rank?.rank ?? '—'}</td>
+                <td>{rank?.rank ?? 'Not ranked'}</td>
                 <td><button type="button" onClick={() => setSelectedCandidateId(row.id)}>{rowIdentity(dataset, row.id)}</button></td>
                 <td>{rowDescription(dataset, row.id)}</td>
-                <td>{semanticText(dataset, row.id, 'operational_area') || '—'}</td>
-                <td>{typeof cost === 'number' ? cost.toLocaleString() : '—'}</td>
+                <td>{semanticText(dataset, row.id, 'operational_area') || 'Not set'}</td>
+                <td>{typeof cost === 'number' ? cost.toLocaleString() : 'Not set'}</td>
                 <td><span className={`row-status ${row.readiness.toLocaleLowerCase('en-US')}`}>{status}</span></td>
               </tr>;
             })}</tbody>
@@ -251,9 +251,9 @@ export function RecommendationsWorkspace({ dataset, workbook, workspaceId, state
           <div className="comparison-block selected"><span>With</span><strong>{rowIdentity(dataset, selected.id)}</strong><small>{rowDescription(dataset, selected.id)}</small></div>
           {selected.readiness !== 'READY' && <p className="selection-warning" role="status">This record has data-quality issues. Review the details before saving your decision.</p>}
           <dl className="selection-facts">
-            <div><dt>Area</dt><dd>{semanticText(dataset, selected.id, 'operational_area') || '—'}</dd></div>
-            <div><dt>Resource</dt><dd>{semanticText(dataset, selected.id, 'resource_requirement') || '—'}</dd></div>
-            <div><dt>Planned date</dt><dd>{String(semanticValue(dataset, selected.id, 'planned_date') ?? '—')}</dd></div>
+            <div><dt>Area</dt><dd>{semanticText(dataset, selected.id, 'operational_area') || 'Not set'}</dd></div>
+            <div><dt>Resource</dt><dd>{semanticText(dataset, selected.id, 'resource_requirement') || 'Not set'}</dd></div>
+            <div><dt>Planned date</dt><dd>{String(semanticValue(dataset, selected.id, 'planned_date') ?? 'Not set')}</dd></div>
           </dl>
           <button className="button primary accept-replacement" type="button" disabled={busy} onClick={() => void useReplacement()}>Use this replacement</button>
         </> : <p className="empty-copy">Select an available job from the list.</p>}
@@ -295,7 +295,7 @@ export function RecommendationsWorkspace({ dataset, workbook, workspaceId, state
             <h3>Availability checks</h3>
             <p>These checks are advisory for replacement selection. Budget and resource limits remain binding in Portfolio.</p>
             <p>{draft.eligibility ? `${draft.eligibility.evaluations.filter((item) => item.state === 'ELIGIBLE').length} eligible, ${draft.eligibility.evaluations.filter((item) => item.state !== 'ELIGIBLE').length} not eligible or needing review.` : 'Apply a ranking or choose manual selection to run checks.'}</p>
-            {draft.eligibility && <ul>{draft.eligibility.evaluations.filter((item) => item.state !== 'ELIGIBLE').slice(0, 12).map((item) => <li key={item.rowId}><strong>{rowIdentity(dataset, item.rowId)}</strong> — {item.reasons.join(' ')}</li>)}</ul>}
+            {draft.eligibility && <ul>{draft.eligibility.evaluations.filter((item) => item.state !== 'ELIGIBLE').slice(0, 12).map((item) => <li key={item.rowId}><strong>{rowIdentity(dataset, item.rowId)}</strong>: {item.reasons.join(' ')}</li>)}</ul>}
           </div>
           <details><summary>Technical source details</summary><p>Planning-data revision: {dataset.snapshotRevision ? 'Recorded' : 'Pending export'}</p><p>Mapping revision: {dataset.mappingRevision ? 'Recorded' : 'Pending export'}</p><p>Ranking source: {activeResult?.source.scoreMeaning ?? 'Manual selection has no score.'}</p></details>
         </div>
