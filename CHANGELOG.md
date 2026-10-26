@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0: release candidate
+## 0.1.0 (2026-10-27)
 
 - Import, map, validate, edit, and export multi-sheet Excel planning workbooks.
 - Preserve dynamic columns, source values, provenance, and externally edited scalar cells.

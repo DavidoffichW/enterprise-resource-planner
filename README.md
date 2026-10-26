@@ -8,6 +8,8 @@ Your priority lists come first. Weighted scoring and an example model can provid
 
 Despite the name, ERP is not a finance or accounting suite.
 
+**[Open the live application](https://davidoffichw.github.io/enterprise-resource-planner/)**
+
 ![ERP Recommendations workbench with a ranked replacement selected](media/erp-recommendations-workflow.png)
 
 ## Quick start
@@ -91,16 +93,18 @@ ERP can be served from a suitable static host over HTTP or HTTPS. Opening the bu
 
 For GitHub Pages, the repository includes a manual deployment workflow in `.github/workflows/deploy-pages.yml`. The build accepts a repository subpath through `ERP_BASE_PATH`.
 
-## Current limitations
+## Background
 
-ERP is an early release and an independently developed educational project inspired by courses and training materials in computer science and engineering. It was built partly to experiment with critical concepts, and it has not been qualified for safety-critical decisions or production operational use.
+ERP began as an independently developed educational engineering project inspired by courses and training materials in computer science, data systems, operations research, security, and machine learning. Its purpose is to turn critical concepts into working software and demonstrate practical understanding of data integrity, reproducibility, optimization, offline architecture, and human-controlled decision support.
 
-The example ranking model demonstrates the scoring workflow. It is not trained or validated for real operational predictions, and its scores are not probabilities or confidence values. Spreadsheet safeguards do not provide universal OOXML compatibility or security certification. Some complex workbook features and layouts are unsupported. Portfolio results above 20 candidates are heuristic and are not presented as proven optima.
+Version 0.1.0 already connects spreadsheet ingestion, semantic mapping, provenance, deterministic ranking, constrained portfolio selection, immutable decision evidence, browser persistence, backup and recovery, and offline delivery in one coherent application. The example model intentionally demonstrates a reproducible ranking pipeline without presenting educational coefficients as real-world predictions.
 
-Browser-local data can be lost if site storage is cleared, the profile becomes unavailable, or the device fails. Exported backups remain the portable recovery mechanism.
+A path toward elite-level product maturity is concrete: broader workbook reconciliation, worker-based processing for measured high-volume workloads, pluggable mathematical solvers, qualified domain models, encrypted and synchronized team workspaces, richer audit collaboration, and formal accessibility, security, and cross-device qualification. These are deliberate extensions of the existing architecture, not substitutes for the working planning workflow delivered here.
+
+ERP remains a decision-support tool. Operational adoption should use organization-specific validation, policies, data controls, and professional judgment. Browser-local work should be backed up before site data is cleared or work moves to another device.
 
 Release notes are available in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-A project license has not been selected. The repository remains private pending ownership and redistribution approval. Without a license, no general permission is granted to copy, modify, or redistribute the source.
+ERP is available under the [MIT License](LICENSE).

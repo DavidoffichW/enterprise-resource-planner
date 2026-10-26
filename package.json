@@ -2,6 +2,7 @@
   "name": "enterprise-resource-planner",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Browser-native operational planning and decision-evidence workbench.",
   "type": "module",
   "packageManager": "npm@11.17.0",

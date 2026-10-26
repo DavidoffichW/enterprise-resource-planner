@@ -35,4 +35,4 @@ ISC: <https://opensource.org/license/isc-license-txt>
 
 MPL-2.0: <https://www.mozilla.org/MPL/2.0/>
 
-This notice is a redistribution aid, not a project license. ERP itself has no selected public license at this time and is not approved for public release.
+ERP itself is distributed under the MIT License. See `LICENSE` for the project license text.
