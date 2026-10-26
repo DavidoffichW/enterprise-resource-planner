@@ -244,6 +244,7 @@ select:hover, input:hover, textarea:hover { border-color: color-mix(in srgb, var
 .comparison-block small { color: var(--text-muted); line-height: 1.35; }
 .comparison-arrow { padding: .3rem 0; color: var(--text-faint); text-align: center; }
 .selection-facts { margin: .7rem 0; display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+.selection-warning { margin: .7rem 0 0; padding: .5rem .6rem; color: var(--warning); background: var(--warning-bg); border: 1px solid currentColor; border-radius: 6px; font-size: .72rem; line-height: 1.4; }
 .selection-facts div { min-width: 0; }
 .selection-facts div:last-child { grid-column: 1 / -1; }
 .selection-facts dt { color: var(--text-muted); font-size: .61rem; text-transform: uppercase; }

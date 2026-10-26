@@ -22,6 +22,8 @@ npm run preview
 
 Open the local URL printed by Vite. `npm run build` writes the static application to `dist/`.
 
+For a repository-hosted build, set `ERP_BASE_PATH` to the hosting subpath before running `npm run build:pages`. The included GitHub Pages workflow is manual-only; no hosted application is published until the project rights and license are approved.
+
 ## Try a replacement decision
 
 1. Open **Facilities example** from Planning Data.
@@ -37,8 +39,8 @@ The two built-in plans contain fictional maintenance and facilities work intende
 - Import and export real `.xlsx` workbooks with multiple worksheets and dynamic source columns.
 - Map spreadsheet columns to planning fields without renaming or discarding the originals.
 - Search, sort, filter, resize, hide, edit, undo, and redo in a spreadsheet-style planning grid.
-- Retain incomplete rows for correction while keeping invalid data out of automatic decisions.
-- Import and reuse Priority Lists without changing their original numeric ranks.
+- Retain incomplete rows with visible warnings and allow an engineer to select them explicitly without presenting them as valid.
+- Import and reuse immutable Priority List versions without changing their original numeric ranks or losing earlier versions.
 - Compare Priority List, weighted-reference, example-model, and manual replacement choices.
 - Build budget- and resource-constrained work portfolios with an explicit solution status.
 - Save replacement decisions, scenarios, feedback, and outcomes with portable evidence records.
@@ -65,4 +67,4 @@ The application preserves source values and distinguishes imported, edited, gene
 
 Direct `file://` launch is not supported; use the development server, preview server, or a static host. Spreadsheet safeguards reduce risk but do not provide universal OOXML compatibility or security certification. This project is under active development and has not been qualified for safety-critical or production operational use.
 
-No project license is currently included. Without a license, no general permission is granted to copy, modify, or redistribute the source.
+Version `0.1.0` is technically prepared as a release candidate; see [CHANGELOG.md](CHANGELOG.md). No project license is currently included. Without a license, no general permission is granted to copy, modify, or redistribute the source, and the repository is not yet approved for public release.

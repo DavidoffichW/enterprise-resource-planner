@@ -192,25 +192,51 @@ export async function recordReplacementDecision(
   existingCases: PlanningCase[],
   input: { name: string; snapshot: CaseSnapshot; selectedRowId: string; rankingResultId: string | null; actorLabel: string; reason: string; now?: string },
 ): Promise<{ planningCase: PlanningCase; created: boolean; decisionId: string }> {
-  if (!input.snapshot.dataset.rows.some((row) => row.id === input.selectedRowId)) throw new Error('The selected replacement is not present in the immutable dataset snapshot.');
+  const { dataset, context, scope, ruleSet, eligibility } = input.snapshot;
+  if (!dataset.rows.some((row) => row.id === input.selectedRowId)) throw new Error('The selected replacement is not present in the immutable dataset snapshot.');
+  if (context.objective !== 'JOB_REPLACEMENT' || context.targetRowIds.length !== 1) throw new Error('A replacement decision requires exactly one planned job.');
+  if (context.targetRowIds.includes(input.selectedRowId)) throw new Error('The planned job cannot also be its replacement.');
+  if (
+    context.datasetId !== dataset.id ||
+    context.datasetSnapshotRevision !== dataset.snapshotRevision ||
+    context.mappingRevision !== dataset.mappingRevision
+  ) throw new Error('The decision context does not match the immutable planning dataset.');
+  if (
+    scope.datasetId !== dataset.id ||
+    scope.datasetSnapshotRevision !== context.datasetSnapshotRevision ||
+    scope.decisionContextId !== context.id
+  ) throw new Error('Candidate Scope does not match the decision context and planning dataset.');
+  if (!scope.candidateRowIds.includes(input.selectedRowId)) throw new Error('The selected replacement is outside the recorded Candidate Scope.');
+  if (eligibility && (
+    !ruleSet ||
+    eligibility.decisionContextId !== context.id ||
+    eligibility.datasetSnapshotRevision !== context.datasetSnapshotRevision ||
+    eligibility.scopeRevision !== scope.revision ||
+    eligibility.ruleSetRevision !== ruleSet.revision
+  )) throw new Error('The recorded assessment evidence does not match this decision context.');
   const ranking = input.rankingResultId ? input.snapshot.rankings.find((item) => item.id === input.rankingResultId) ?? null : null;
   if (input.rankingResultId && !ranking) throw new Error('The selected recommendation source is not present in the Case snapshot.');
   if (ranking && (
     ranking.contextId !== input.snapshot.context.id ||
     ranking.scopeRevision !== input.snapshot.scope.revision ||
-    ranking.datasetSnapshotRevision !== input.snapshot.context.datasetSnapshotRevision
+    ranking.datasetSnapshotRevision !== context.datasetSnapshotRevision ||
+    ranking.eligibilityRunId !== (eligibility?.id ?? null) ||
+    !ranking.candidateRowIds.includes(input.selectedRowId) ||
+    ranking.candidateRowIds.length !== scope.candidateRowIds.length ||
+    ranking.candidateRowIds.some((rowId, index) => rowId !== scope.candidateRowIds[index])
   )) {
-    throw new Error('The selected recommendation was calculated for a different job, candidate set, or planning-data revision. Rank this decision again before saving it.');
+    throw new Error('The selected recommendation was calculated for different planning data, checks, or candidates. Rank this decision again before saving it.');
   }
   const decisionId = await canonicalDigest({
-    schema: 'erp-replacement-decision/2',
-    contextId: input.snapshot.context.id,
-    datasetSnapshotRevision: input.snapshot.context.datasetSnapshotRevision,
-    mappingRevision: input.snapshot.context.mappingRevision,
-    scopeRevision: input.snapshot.scope.revision,
-    effectiveDate: input.snapshot.context.effectiveDate,
-    targetRowIds: input.snapshot.context.targetRowIds,
+    schema: 'erp-replacement-decision/3',
+    contextId: context.id,
+    datasetSnapshotRevision: context.datasetSnapshotRevision,
+    mappingRevision: context.mappingRevision,
+    scopeRevision: scope.revision,
+    effectiveDate: context.effectiveDate,
+    targetRowIds: context.targetRowIds,
     selectedRowId: input.selectedRowId,
+    assessmentEvidence: eligibility ? { id: eligibility.id, ruleSetRevision: eligibility.ruleSetRevision } : null,
     rankingSource: ranking ? { resultId: ranking.id, id: ranking.source.id, revision: ranking.source.revision } : null,
   });
   const existing = existingCases.find((planningCase) => {
@@ -222,7 +248,8 @@ export async function recordReplacementDecision(
       if (event.type !== 'DECISION_RECORDED') return false;
       try {
         const value = JSON.parse(event.value) as { decisionId?: unknown; selectedRowId?: unknown; rankingSource?: { resultId?: unknown } | null };
-        return value.decisionId === decisionId || (
+        if (typeof value.decisionId === 'string') return value.decisionId === decisionId;
+        return (
           value.selectedRowId === input.selectedRowId &&
           (value.rankingSource?.resultId ?? null) === (ranking?.id ?? null)
         );
@@ -237,7 +264,8 @@ export async function recordReplacementDecision(
     rowId: input.selectedRowId,
     value: JSON.stringify({
       schemaVersion: '1.0', decisionId, selectedRowId: input.selectedRowId,
-      plannedRowIds: input.snapshot.context.targetRowIds,
+      plannedRowIds: context.targetRowIds,
+      assessmentEvidence: eligibility ? { id: eligibility.id, ruleSetRevision: eligibility.ruleSetRevision } : null,
       rankingSource: ranking ? { resultId: ranking.id, type: ranking.source.type, id: ranking.source.id, revision: ranking.source.revision, label: ranking.source.label } : null,
     }),
     reason: input.reason,

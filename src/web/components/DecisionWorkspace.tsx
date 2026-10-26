@@ -21,6 +21,7 @@ import {
   evaluateEligibility,
   FACILITIES_EXAMPLE_PRIORITY_ORDER,
   optimizePortfolio,
+  preservePriorityListRevision,
   rankByDemonstrationModel,
   rankByPriorityList,
   rankByWeightedCriteria,
@@ -52,6 +53,11 @@ function downloadBytes(bytes: Uint8Array, filename: string) {
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url);
 }
 
+function priorityVersionLabel(list: PriorityListRevision, history: PriorityListRevision[]): string {
+  const revisions = history.filter((candidate) => candidate.id === list.id);
+  return `${list.name} · version ${revisions.findIndex((candidate) => candidate.revision === list.revision) + 1}`;
+}
+
 function eligibleIds(draft: DecisionDraft): string[] {
   return draft.eligibility?.evaluations.filter((evaluation) => evaluation.state === 'ELIGIBLE').map((evaluation) => evaluation.rowId) ?? [];
 }
@@ -60,7 +66,7 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
   const [objective, setObjective] = useState<DecisionObjective>(draft.context?.objective ?? 'JOB_REPLACEMENT');
   const [targetIds, setTargetIds] = useState<string[]>(draft.context?.targetRowIds ?? []);
   const [effectiveDate, setEffectiveDate] = useState(draft.context?.effectiveDate ?? new Date().toISOString().slice(0, 10));
-  const [scopeMode, setScopeMode] = useState<ScopeMode>(draft.scope?.mode ?? 'ALL_VALID');
+  const [scopeMode, setScopeMode] = useState<ScopeMode>(draft.scope?.mode ?? 'ALL_RECORDS');
   const [manualIds, setManualIds] = useState<string[]>(draft.scope?.manualIncludedRowIds ?? []);
   const [excludedIds, setExcludedIds] = useState<string[]>(draft.scope?.manualExcludedRowIds ?? []);
   const [filterRole, setFilterRole] = useState<'status' | 'job_category' | 'operational_area'>('status');
@@ -68,7 +74,8 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
   const [viewName, setViewName] = useState('Planning view');
   const [selectedViewId, setSelectedViewId] = useState(draft.scope?.savedViewId ?? '');
   const [ruleDrafts, setRuleDrafts] = useState<EligibilityRule[]>(draft.ruleSet?.rules ?? defaultEligibilityRules());
-  const [selectedListId, setSelectedListId] = useState(state.priorityLists[0]?.id ?? '');
+  const [selectedListRevision, setSelectedListRevision] = useState(state.priorityLists.at(-1)?.revision ?? '');
+  const [updateListId, setUpdateListId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -123,7 +130,7 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
     if (kind === 'reference') result = await rankByWeightedCriteria(dataset, draft.context.id, draft.scope, draft.eligibility);
     else if (kind === 'model') result = await rankByDemonstrationModel(dataset, draft.context.id, draft.scope, draft.eligibility);
     else {
-      const list = state.priorityLists.find((candidate) => candidate.id === selectedListId);
+      const list = state.priorityLists.find((candidate) => candidate.revision === selectedListRevision);
       if (!list) throw new Error('Select a persistent Priority List.');
       result = await rankByPriorityList(dataset, draft.context.id, draft.scope, draft.eligibility, list);
     }
@@ -138,22 +145,25 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
     if (dataset.sourceIdentity !== 'synthetic:facilities-scheduling:recipe-1:seed-271828') throw new Error('Example priorities are available only for the Facilities example.');
     const entries = FACILITIES_EXAMPLE_PRIORITY_ORDER.map((itemId, index) => ({ itemId, priorityRank: index + 1, additionalFields: {} }));
     const list = await createPriorityListRevision('Example priorities', 'Planned Job ID', 'Priority Rank', entries, 'built-in-facilities-example');
-    onState({ ...state, priorityLists: [...state.priorityLists.filter((item) => item.id !== list.id), list] });
-    setSelectedListId(list.id);
+    onState({ ...state, priorityLists: preservePriorityListRevision(state.priorityLists, list) });
+    setSelectedListRevision(list.revision);
     setNotice('Example priorities created for this plan.');
   });
 
   const importList = () => run(async () => {
     if (!inspection) throw new Error('Select and inspect a Priority List workbook first.');
-    const list = await createPriorityListFromInspection(inspection, inspection.sourceName.replace(/\.xlsx$/i, ''), identifierHeader, rankHeader);
-    onState({ ...state, priorityLists: [...state.priorityLists.filter((item) => item.id !== list.id), list] });
-    setSelectedListId(list.id);
+    const logicalList = updateListId ? state.priorityLists.find((item) => item.id === updateListId) ?? null : null;
+    const name = logicalList?.name ?? inspection.sourceName.replace(/\.xlsx$/i, '');
+    const list = await createPriorityListFromInspection(inspection, name, identifierHeader, rankHeader, logicalList?.id);
+    onState({ ...state, priorityLists: preservePriorityListRevision(state.priorityLists, list) });
+    setSelectedListRevision(list.revision);
+    setUpdateListId('');
     setInspection(null);
     setNotice(`Priority List “${list.name}” revision imported with ${list.entries.length} entries.`);
   });
 
   const exportList = () => run(async () => {
-    const list = state.priorityLists.find((candidate) => candidate.id === selectedListId);
+    const list = state.priorityLists.find((candidate) => candidate.revision === selectedListRevision);
     if (!list) throw new Error('Select a Priority List to export.');
     downloadBytes(await exportPriorityList(list), `erp-priority-list-${list.id}.xlsx`);
     setNotice(`Priority List “${list.name}” exported with explicit identifier and rank columns.`);
@@ -162,6 +172,7 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
   const comparison = useMemo(() => {
     try { return draft.rankings.length >= 2 ? compareRankings(draft.rankings) : null; } catch { return null; }
   }, [draft.rankings]);
+  const logicalLists = state.priorityLists.filter((list, index, lists) => lists.findIndex((candidate) => candidate.id === list.id) === index);
 
   const moveMyRank = (rowId: string, direction: -1 | 1) => {
     const ordered = [...draft.myRank].sort((a, b) => a.myRank - b.myRank);
@@ -198,7 +209,7 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
           <label>Objective<select value={objective} onChange={(event) => setObjective(event.target.value as DecisionObjective)}><option value="JOB_REPLACEMENT">Job replacement</option><option value="GROUP_REPLACEMENT">Group replacement</option><option value="PRIORITIZATION">Prioritization</option><option value="PORTFOLIO">Portfolio planning</option></select></label>
           <label>Effective date<input type="date" value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value)} /></label>
           <label className="wide">Planned item or group<select multiple size={6} value={targetIds} onChange={(event) => setTargetIds([...event.currentTarget.selectedOptions].map((option) => option.value))}>{availableRows.map((row) => <option key={row.id} value={row.id}>{rowLabel(dataset, row.id)}</option>)}</select></label>
-          <label>Candidate Scope mode<select value={scopeMode} onChange={(event) => setScopeMode(event.target.value as ScopeMode)}><option value="ALL_VALID">All valid candidates</option><option value="ALL_ELIGIBLE">All eligible candidates</option><option value="FILTERED">Filtered set</option><option value="MANUAL">Manual set</option><option value="FILTERED_MANUAL">Filtered plus manual adjustments</option><option value="SAVED_VIEW">Saved planning view</option></select></label>
+          <label>Candidate Scope mode<select value={scopeMode} onChange={(event) => setScopeMode(event.target.value as ScopeMode)}><option value="ALL_RECORDS">All loaded candidates</option><option value="ALL_VALID">All valid candidates</option><option value="ALL_ELIGIBLE">All eligible candidates</option><option value="FILTERED">Filtered set</option><option value="MANUAL">Manual set</option><option value="FILTERED_MANUAL">Filtered plus manual adjustments</option><option value="SAVED_VIEW">Saved planning view</option></select></label>
           <label>Filter role<select value={filterRole} onChange={(event) => setFilterRole(event.target.value as typeof filterRole)}><option value="status">Status</option><option value="job_category">Job category</option><option value="operational_area">Operational area</option></select></label>
           <label>Exact filter value<input value={filterValue} onChange={(event) => setFilterValue(event.target.value)} placeholder="Optional" /></label>
           <label>Planning view name<input value={viewName} onChange={(event)=>setViewName(event.target.value)}/></label>
@@ -219,11 +230,11 @@ export function DecisionWorkspace({ view, dataset, workspaceId, state, draft, en
 
   if (view === 'rankings') return (
     <section className="module-stack" aria-labelledby="rank-title"><div className="module-hero"><p className="eyebrow">Rankings and Model Comparison</p><h1 id="rank-title">Compare transparent sources over one eligible population.</h1><p>Priority Rank, Model Rank, and My Rank remain independent.</p></div>
-      <section className="panel"><h2>Persistent Priority Lists</h2><div className="panel-actions"><button className="button secondary" onClick={() => void createDemoList()} disabled={busy}>Create synthetic list</button><button className="button secondary" onClick={() => listInput.current?.click()} disabled={busy}>Import Priority List .xlsx</button><button className="button secondary" onClick={() => void exportList()} disabled={busy || !selectedListId}>Export selected list</button><input ref={listInput} className="sr-only" type="file" accept=".xlsx" onChange={(event) => { const file=event.target.files?.[0]; if(!file)return; void run(async()=>{const inspected=await inspectPriorityListWorkbook(new Uint8Array(await file.arrayBuffer()),file.name);setInspection(inspected);setIdentifierHeader(inspected.headers[0]??'');setRankHeader(inspected.headers[1]??'');}); }} /></div>
-        {inspection && <div className="form-grid"><label>Item identifier column<select value={identifierHeader} onChange={(event)=>setIdentifierHeader(event.target.value)}>{inspection.headers.map((header)=><option key={header}>{header}</option>)}</select></label><label>Priority Rank column<select value={rankHeader} onChange={(event)=>setRankHeader(event.target.value)}>{inspection.headers.map((header)=><option key={header}>{header}</option>)}</select></label><button className="button primary" onClick={()=>void importList()}>Confirm Priority List mapping</button></div>}
-        <label>Selected Priority List<select value={selectedListId} onChange={(event)=>setSelectedListId(event.target.value)}><option value="">Select a list</option>{state.priorityLists.map((list)=><option key={list.id} value={list.id}>{list.name} · {list.entries.length} entries</option>)}</select></label>
+      <section className="panel"><h2>Persistent Priority Lists</h2><div className="panel-actions"><button className="button secondary" onClick={() => void createDemoList()} disabled={busy}>Create synthetic list</button><button className="button secondary" onClick={() => listInput.current?.click()} disabled={busy}>Import Priority List .xlsx</button><button className="button secondary" onClick={() => void exportList()} disabled={busy || !selectedListRevision}>Export selected version</button><input ref={listInput} className="sr-only" type="file" accept=".xlsx" onChange={(event) => { const file=event.target.files?.[0]; if(!file)return; void run(async()=>{const inspected=await inspectPriorityListWorkbook(new Uint8Array(await file.arrayBuffer()),file.name);setInspection(inspected);setIdentifierHeader(inspected.headers[0]??'');setRankHeader(inspected.headers[1]??'');}); }} /></div>
+        {inspection && <div className="form-grid"><label>Save as<select value={updateListId} onChange={(event)=>setUpdateListId(event.target.value)}><option value="">New Priority List</option>{logicalLists.map((list)=><option key={list.id} value={list.id}>New version of {list.name}</option>)}</select></label><label>Item identifier column<select value={identifierHeader} onChange={(event)=>setIdentifierHeader(event.target.value)}>{inspection.headers.map((header)=><option key={header}>{header}</option>)}</select></label><label>Priority Rank column<select value={rankHeader} onChange={(event)=>setRankHeader(event.target.value)}>{inspection.headers.map((header)=><option key={header}>{header}</option>)}</select></label><button className="button primary" onClick={()=>void importList()}>Confirm Priority List mapping</button></div>}
+        <label>Selected Priority List version<select value={selectedListRevision} onChange={(event)=>setSelectedListRevision(event.target.value)}><option value="">Select a version</option>{state.priorityLists.map((list)=><option key={list.revision} value={list.revision}>{priorityVersionLabel(list, state.priorityLists)} · {list.entries.length} entries</option>)}</select></label>
       </section>
-      <section className="panel"><h2>Ranking sources</h2><div className="panel-actions"><button className="button primary" onClick={()=>void runRanking('priority')} disabled={busy || !selectedListId}>Apply Priority List</button><button className="button secondary" onClick={()=>void runRanking('reference')} disabled={busy}>Run weighted reference</button><button className="button secondary" onClick={()=>void runRanking('model')} disabled={busy}>Run synthetic demo model</button></div><p className="inline-help">The demonstration model uses only declared priority, cost, and duration features. Its score is not probability, confidence, or field accuracy.</p></section>
+      <section className="panel"><h2>Ranking sources</h2><div className="panel-actions"><button className="button primary" onClick={()=>void runRanking('priority')} disabled={busy || !selectedListRevision}>Apply Priority List</button><button className="button secondary" onClick={()=>void runRanking('reference')} disabled={busy}>Run weighted reference</button><button className="button secondary" onClick={()=>void runRanking('model')} disabled={busy}>Run synthetic demo model</button></div><p className="inline-help">The demonstration model uses only declared priority, cost, and duration features. Its score is not probability, confidence, or field accuracy.</p></section>
       {draft.rankings.map((result)=><section className="panel" key={result.id}><h2>{result.source.label}</h2><p>{result.source.scoreMeaning}</p><div className="evidence-table-wrap"><table><thead><tr><th>Rank</th><th>Item</th><th>Score</th><th>Exact explanation</th></tr></thead><tbody>{result.ranks.slice().sort((a,b)=>compareNullableRanks(a,b,'asc')).map((rank)=><tr key={rank.rowId}><td>{rank.rank??'—'}</td><td>{rowLabel(dataset,rank.rowId)}</td><td>{rank.score?.toFixed(4)??'Unranked'}</td><td>{rank.explanation.join(' ')}</td></tr>)}</tbody></table></div></section>)}
       {comparison && <section className="panel"><h2>Common-population comparison</h2><p>{comparison.sourceIds.length} sources · top-{comparison.topK} overlap {(comparison.topKOverlap*100).toFixed(0)}%.</p><p className="inline-help">{comparison.limitations.join(' ')}</p></section>}
       {draft.myRank.length>0 && <section className="panel"><h2>My Rank working order</h2><p>Moving rows is a preview. Saving it into a Case is an explicit event.</p><ol className="my-rank-list">{draft.myRank.slice().sort((a,b)=>a.myRank-b.myRank).map((item)=><li key={item.rowId}><span>{item.myRank}. {rowLabel(dataset,item.rowId)}</span><button aria-label={`Move ${rowLabel(dataset,item.rowId)} up`} onClick={()=>moveMyRank(item.rowId,-1)}>↑</button><button aria-label={`Move ${rowLabel(dataset,item.rowId)} down`} onClick={()=>moveMyRank(item.rowId,1)}>↓</button></li>)}</ol><button className="button secondary" onClick={()=>{try{update({myRank:validateHumanRank(draft.myRank,currentEligible)});setNotice('My Rank validated. Record a Case event to commit it.');}catch(caught){setError(caught instanceof Error?caught.message:'My Rank validation failed.');}}}>Validate My Rank</button></section>}

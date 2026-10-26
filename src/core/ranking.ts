@@ -141,6 +141,18 @@ export async function createPriorityListRevision(
   return { ...body, revision: checksum, createdAt: now, checksum };
 }
 
+export function preservePriorityListRevision(
+  revisions: PriorityListRevision[],
+  next: PriorityListRevision,
+): PriorityListRevision[] {
+  const existing = revisions.find((revision) => revision.revision === next.revision);
+  if (!existing) return [...revisions, next];
+  if (existing.id !== next.id || existing.checksum !== next.checksum) {
+    throw new Error('Priority List revision identity conflicts with existing evidence.');
+  }
+  return revisions;
+}
+
 export async function rankByPriorityList(
   dataset: PlanningDataset,
   contextId: string,
