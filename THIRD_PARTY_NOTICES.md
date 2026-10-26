@@ -11,8 +11,11 @@ Enterprise Resource Planner includes or builds with the following principal open
 | write-excel-file | Browser XLSX export | MIT |
 | TypeScript | Development compiler | Apache-2.0 |
 | Vite and `@vitejs/plugin-react` | Development and static build tooling | MIT |
+| GitHub-maintained Pages actions | Manual release-build and deployment automation | MIT |
 
 The locked dependency license audit also includes permissive Apache-2.0, BSD-3-Clause, ISC, MIT, and MPL-2.0 packages. MPL-2.0 entries are Lightning CSS build-tool binaries; they are not application source authored by this project. Upstream copyright and license files in the resolved packages remain controlling.
+
+The Pages workflow pins `actions/checkout`, `actions/setup-node`, `actions/configure-pages`, `actions/upload-pages-artifact`, and `actions/deploy-pages` to reviewed commit identities. Those actions execute on GitHub-hosted automation and are not bundled into ERP's browser runtime.
 
 ## MIT License text
 
