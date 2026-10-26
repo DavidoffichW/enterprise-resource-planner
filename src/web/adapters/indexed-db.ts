@@ -75,11 +75,12 @@ export async function saveApplicationState(state: PersistedApplicationState): Pr
 }
 
 export async function clearApplicationStorage(): Promise<void> {
-  if (!globalThis.indexedDB) throw new LocalStorageError('IndexedDB is unavailable in this browser context.');
-  await new Promise<void>((resolve, reject) => {
-    const request = indexedDB.deleteDatabase(DATABASE_NAME);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(new LocalStorageError('ERP local storage could not be cleared.', { cause: request.error }));
-    request.onblocked = () => reject(new LocalStorageError('ERP local storage deletion is blocked by another open application tab.'));
-  });
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(STORE_NAME, 'readwrite', { durability: 'strict' });
+    transaction.objectStore(STORE_NAME).clear();
+    await transactionComplete(transaction, 'ERP local storage could not be cleared.');
+  } finally {
+    database.close();
+  }
 }
