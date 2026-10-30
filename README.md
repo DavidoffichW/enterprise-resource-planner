@@ -12,25 +12,32 @@ Despite the name, ERP is not a finance or accounting suite.
 
 ![ERP Recommendations workbench with a ranked replacement selected](media/erp-recommendations-workflow.png)
 
-## Quick start
+## Run the application
 
-You will need Node.js 24.15 or later and npm 11 or later to build or run ERP locally.
+The hosted application requires no installation: use
+**[Open the live application](https://davidoffichw.github.io/enterprise-resource-planner/)**.
 
-```powershell
+To run a local development copy, install Node.js 24.15 or later and npm 11 or
+later. Then, from the repository root, run:
+
+```bash
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite.
+Open the local URL printed by Vite, normally <http://localhost:5173>. Keep the
+terminal open while using ERP and press Ctrl+C to stop the development server.
 
-To verify, build, and preview the production version:
+To verify and preview a production build, stop the development server and run:
 
-```powershell
+```bash
 npm run verify
 npm run preview
 ```
 
-The static build is written to `dist/`. Once built, ERP does not need Node.js, Python, or a backend to run.
+Open the preview URL printed by Vite. The static build is written to `dist/`.
+Once built, ERP does not need Node.js, Python, or a backend to run, but it must
+be served over HTTP or HTTPS rather than opened with `file://`.
 
 ## Try a replacement decision
 
